@@ -34,17 +34,15 @@ public class MainActivity extends Activity {
     private final List<String> speechParts = new ArrayList<>();
     private int currentPart = 0;
 
-    /*
-     * প্রতিটি অংশ ছোট রাখা হচ্ছে যাতে Pause/Resume
-     * করার সময় শুরু থেকে না পড়ে।
-     */
     private static final int WORDS_PER_PART = 35;
+
+    private boolean englishMode = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        createInterface();
+        createMainInterface();
 
         textToSpeech = new TextToSpeech(this, status -> {
 
@@ -66,7 +64,9 @@ public class MainActivity extends Activity {
                                     isSpeaking = true;
 
                                     statusText.setText(
-                                            "ভয়েস চলছে"
+                                            englishMode
+                                                    ? "Voice is playing"
+                                                    : "ভয়েস চলছে"
                                     );
 
                                     updateButtons();
@@ -95,7 +95,9 @@ public class MainActivity extends Activity {
                                         currentPart = 0;
 
                                         statusText.setText(
-                                                "পড়া শেষ হয়েছে"
+                                                englishMode
+                                                        ? "Reading finished"
+                                                        : "পড়া শেষ হয়েছে"
                                         );
 
                                         updateButtons();
@@ -111,7 +113,9 @@ public class MainActivity extends Activity {
                                     isSpeaking = false;
 
                                     statusText.setText(
-                                            "ভয়েস পড়তে সমস্যা হয়েছে"
+                                            englishMode
+                                                    ? "There was a problem reading the voice"
+                                                    : "ভয়েস পড়তে সমস্যা হয়েছে"
                                     );
 
                                     updateButtons();
@@ -120,7 +124,10 @@ public class MainActivity extends Activity {
                         }
                 );
 
-                statusText.setText("প্রস্তুত");
+                statusText.setText(
+                        englishMode ? "Ready" : "প্রস্তুত"
+                );
+
                 updateButtons();
 
             } else {
@@ -128,58 +135,30 @@ public class MainActivity extends Activity {
                 ttsReady = false;
 
                 statusText.setText(
-                        "TTS প্রস্তুত করা যায়নি"
+                        englishMode
+                                ? "TTS could not be prepared"
+                                : "TTS প্রস্তুত করা যায়নি"
                 );
             }
         });
     }
 
-    private void createInterface() {
+    private void createMainInterface() {
 
         LinearLayout root = new LinearLayout(this);
 
-        root.setOrientation(
-                LinearLayout.VERTICAL
-        );
-
-        root.setPadding(
-                30,
-                30,
-                30,
-                30
-        );
-
-        root.setBackgroundColor(
-                Color.WHITE
-        );
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(30, 30, 30, 30);
+        root.setBackgroundColor(Color.WHITE);
 
         TextView title = new TextView(this);
 
-        title.setText(
-                "BanglaVoiceVideo"
-        );
-
+        title.setText("BanglaVoiceVideo");
         title.setTextSize(28);
-
-        title.setTypeface(
-                Typeface.DEFAULT,
-                Typeface.BOLD
-        );
-
-        title.setTextColor(
-                Color.BLACK
-        );
-
-        title.setGravity(
-                Gravity.CENTER
-        );
-
-        title.setPadding(
-                0,
-                0,
-                0,
-                25
-        );
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        title.setTextColor(Color.BLACK);
+        title.setGravity(Gravity.CENTER);
+        title.setPadding(0, 0, 0, 20);
 
         title.setContentDescription(
                 "BanglaVoiceVideo অ্যাপ"
@@ -193,55 +172,55 @@ public class MainActivity extends Activity {
                 )
         );
 
-        /*
-         * বড় লেখা হলেও শুধু Text box-এর ভেতরে scroll হবে।
-         * নিচের বাটনগুলো স্ক্রিনে থাকবে।
-         */
+        Button settingsButton = new Button(this);
+
+        settingsButton.setText(
+                englishMode ? "Settings" : "সেটিংস"
+        );
+
+        settingsButton.setContentDescription(
+                englishMode ? "Settings" : "সেটিংস"
+        );
+
+        settingsButton.setOnClickListener(
+                v -> showSettings()
+        );
+
+        root.addView(
+                settingsButton,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+        );
+
         ScrollView textScroll = new ScrollView(this);
 
         textScroll.setFillViewport(true);
 
-        EditText input = new EditText(this);
-
-        textInput = input;
+        textInput = new EditText(this);
 
         textInput.setHint(
-                "এখানে বাংলা বা English লেখা লিখুন"
+                englishMode
+                        ? "Enter Bangla or English text here"
+                        : "এখানে বাংলা বা English লেখা লিখুন"
         );
 
         textInput.setTextSize(18);
+        textInput.setTextColor(Color.BLACK);
+        textInput.setHintTextColor(Color.GRAY);
+        textInput.setGravity(Gravity.TOP | Gravity.START);
 
-        textInput.setTextColor(
-                Color.BLACK
-        );
-
-        textInput.setHintTextColor(
-                Color.GRAY
-        );
-
-        textInput.setGravity(
-                Gravity.TOP | Gravity.START
-        );
-
-        textInput.setPadding(
-                20,
-                20,
-                20,
-                20
-        );
+        textInput.setPadding(20, 20, 20, 20);
 
         textInput.setSingleLine(false);
-
-        textInput.setMaxLines(
-                Integer.MAX_VALUE
-        );
-
-        textInput.setVerticalScrollBarEnabled(
-                true
-        );
+        textInput.setMaxLines(Integer.MAX_VALUE);
+        textInput.setVerticalScrollBarEnabled(true);
 
         textInput.setContentDescription(
-                "বাংলা অথবা English লেখা লেখার ঘর"
+                englishMode
+                        ? "Text input box"
+                        : "বাংলা অথবা English লেখা লেখার ঘর"
         );
 
         textScroll.addView(
@@ -264,11 +243,11 @@ public class MainActivity extends Activity {
         listenButton = new Button(this);
 
         listenButton.setText(
-                "লেখা শুনুন"
+                englishMode ? "Listen to text" : "লেখা শুনুন"
         );
 
         listenButton.setContentDescription(
-                "লেখা শুনুন"
+                englishMode ? "Listen to text" : "লেখা শুনুন"
         );
 
         listenButton.setOnClickListener(
@@ -285,14 +264,6 @@ public class MainActivity extends Activity {
 
         pauseButton = new Button(this);
 
-        pauseButton.setText(
-                "ভয়েস বন্ধ করুন"
-        );
-
-        pauseButton.setContentDescription(
-                "ভয়েস বন্ধ করুন"
-        );
-
         pauseButton.setOnClickListener(
                 v -> pauseOrResume()
         );
@@ -308,28 +279,19 @@ public class MainActivity extends Activity {
         statusText = new TextView(this);
 
         statusText.setText(
-                "প্রস্তুত"
+                englishMode ? "Ready" : "প্রস্তুত"
         );
 
         statusText.setTextSize(17);
+        statusText.setTextColor(Color.BLACK);
+        statusText.setGravity(Gravity.CENTER);
 
-        statusText.setTextColor(
-                Color.BLACK
-        );
-
-        statusText.setGravity(
-                Gravity.CENTER
-        );
-
-        statusText.setPadding(
-                0,
-                15,
-                0,
-                5
-        );
+        statusText.setPadding(0, 15, 0, 5);
 
         statusText.setContentDescription(
-                "বর্তমান অবস্থা"
+                englishMode
+                        ? "Current status"
+                        : "বর্তমান অবস্থা"
         );
 
         root.addView(
@@ -341,6 +303,8 @@ public class MainActivity extends Activity {
         );
 
         setContentView(root);
+
+        updateButtons();
     }
 
     private void startReading() {
@@ -348,7 +312,9 @@ public class MainActivity extends Activity {
         if (!ttsReady) {
 
             statusText.setText(
-                    "TTS এখনো প্রস্তুত নয়"
+                    englishMode
+                            ? "TTS is not ready"
+                            : "TTS এখনো প্রস্তুত নয়"
             );
 
             return;
@@ -362,16 +328,14 @@ public class MainActivity extends Activity {
         if (text.isEmpty()) {
 
             statusText.setText(
-                    "আগে কিছু লেখা লিখুন"
+                    englishMode
+                            ? "Please enter some text first"
+                            : "আগে কিছু লেখা লিখুন"
             );
 
             return;
         }
 
-        /*
-         * নতুন করে লেখা শুনলে আগের অবস্থান মুছে
-         * একেবারে শুরু থেকে শুরু হবে।
-         */
         textToSpeech.stop();
 
         speechParts.clear();
@@ -381,9 +345,7 @@ public class MainActivity extends Activity {
         );
 
         currentPart = 0;
-
         isPaused = false;
-
         isSpeaking = false;
 
         speakCurrentPart();
@@ -395,19 +357,17 @@ public class MainActivity extends Activity {
             return;
         }
 
-        /*
-         * বর্তমানে পড়লে Pause।
-         */
         if (isSpeaking) {
 
             textToSpeech.stop();
 
             isSpeaking = false;
-
             isPaused = true;
 
             statusText.setText(
-                    "ভয়েস বন্ধ আছে"
+                    englishMode
+                            ? "Voice is paused"
+                            : "ভয়েস বন্ধ আছে"
             );
 
             updateButtons();
@@ -415,16 +375,15 @@ public class MainActivity extends Activity {
             return;
         }
 
-        /*
-         * Pause অবস্থায় থাকলে পরের ছোট অংশ থেকে Resume।
-         */
         if (isPaused &&
                 currentPart < speechParts.size()) {
 
             isPaused = false;
 
             statusText.setText(
-                    "ভয়েস চালু হয়েছে"
+                    englishMode
+                            ? "Voice resumed"
+                            : "ভয়েস চালু হয়েছে"
             );
 
             updateButtons();
@@ -462,8 +421,7 @@ public class MainActivity extends Activity {
         selectVoiceForText(part);
 
         String utteranceId =
-                "BanglaVoiceVideo_part_"
-                        + currentPart;
+                "BanglaVoiceVideo_part_" + currentPart;
 
         textToSpeech.speak(
                 part,
@@ -477,12 +435,7 @@ public class MainActivity extends Activity {
         updateButtons();
     }
 
-    /*
-     * বড় লেখাকে ছোট ছোট অংশে ভাগ করা।
-     * প্রতিটি অংশ সর্বোচ্চ 35টি শব্দ।
-     */
-    private List<String> splitIntoSmallParts(
-            String text) {
+    private List<String> splitIntoSmallParts(String text) {
 
         List<String> parts =
                 new ArrayList<>();
@@ -511,7 +464,6 @@ public class MainActivity extends Activity {
                 }
 
                 current.setLength(0);
-
                 count = 0;
             }
 
@@ -534,8 +486,7 @@ public class MainActivity extends Activity {
         return parts;
     }
 
-    private void selectVoiceForText(
-            String text) {
+    private void selectVoiceForText(String text) {
 
         boolean hasBangla =
                 containsBangla(text);
@@ -545,111 +496,73 @@ public class MainActivity extends Activity {
 
         try {
 
-            /*
-             * শুধু বাংলা হলে বাংলা voice।
-             */
             if (hasBangla && !hasEnglish) {
 
                 Voice voice =
                         findVoice(
-                                new Locale(
-                                        "bn",
-                                        "BD"
-                                )
+                                new Locale("bn", "BD")
                         );
 
                 if (voice != null) {
 
-                    textToSpeech.setVoice(
-                            voice
-                    );
+                    textToSpeech.setVoice(voice);
 
                 } else {
 
                     textToSpeech.setLanguage(
-                            new Locale(
-                                    "bn",
-                                    "BD"
-                            )
+                            new Locale("bn", "BD")
                     );
                 }
 
-            /*
-             * শুধু English হলে English voice।
-             */
-            } else if (hasEnglish &&
-                    !hasBangla) {
+            } else if (hasEnglish && !hasBangla) {
 
                 Voice voice =
-                        findVoice(
-                                Locale.US
-                        );
+                        findVoice(Locale.US);
 
                 if (voice != null) {
 
-                    textToSpeech.setVoice(
-                            voice
-                    );
+                    textToSpeech.setVoice(voice);
 
                 } else {
 
-                    textToSpeech.setLanguage(
-                            Locale.US
-                    );
+                    textToSpeech.setLanguage(Locale.US);
                 }
 
-            /*
-             * মিশ্র লেখা হলে বাংলা voice-কে
-             * অগ্রাধিকার দেওয়া হচ্ছে।
-             */
             } else if (hasBangla) {
 
                 Voice voice =
                         findVoice(
-                                new Locale(
-                                        "bn",
-                                        "BD"
-                                )
+                                new Locale("bn", "BD")
                         );
 
                 if (voice != null) {
 
-                    textToSpeech.setVoice(
-                            voice
-                    );
+                    textToSpeech.setVoice(voice);
 
                 } else {
 
                     textToSpeech.setLanguage(
-                            new Locale(
-                                    "bn",
-                                    "BD"
-                            )
+                            new Locale("bn", "BD")
                     );
                 }
 
             } else {
 
-                textToSpeech.setLanguage(
-                        Locale.US
-                );
+                textToSpeech.setLanguage(Locale.US);
             }
 
         } catch (Exception e) {
 
             try {
 
-                textToSpeech.setLanguage(
-                        Locale.US
-                );
+                textToSpeech.setLanguage(Locale.US);
 
             } catch (Exception ignored) {
             }
         }
     }
 
-    private Voice findVoice(
-            Locale wantedLocale) {
+    private Voice findVoice(Locale wantedLocale) {
 
         if (textToSpeech.getVoices() == null) {
             return null;
@@ -667,12 +580,9 @@ public class MainActivity extends Activity {
                 continue;
             }
 
-            if (locale.equals(
-                    wantedLocale)) {
+            if (locale.equals(wantedLocale)) {
 
-                if (!voice
-                        .isNetworkConnectionRequired()) {
-
+                if (!voice.isNetworkConnectionRequired()) {
                     return voice;
                 }
 
@@ -685,15 +595,11 @@ public class MainActivity extends Activity {
         return fallback;
     }
 
-    private boolean containsBangla(
-            String text) {
+    private boolean containsBangla(String text) {
 
-        for (int i = 0;
-                i < text.length();
-                i++) {
+        for (int i = 0; i < text.length(); i++) {
 
-            char c =
-                    text.charAt(i);
+            char c = text.charAt(i);
 
             if (c >= '\u0980' &&
                     c <= '\u09FF') {
@@ -705,20 +611,14 @@ public class MainActivity extends Activity {
         return false;
     }
 
-    private boolean containsEnglish(
-            String text) {
+    private boolean containsEnglish(String text) {
 
-        for (int i = 0;
-                i < text.length();
-                i++) {
+        for (int i = 0; i < text.length(); i++) {
 
-            char c =
-                    text.charAt(i);
+            char c = text.charAt(i);
 
-            if ((c >= 'A' &&
-                    c <= 'Z') ||
-                    (c >= 'a' &&
-                    c <= 'z')) {
+            if ((c >= 'A' && c <= 'Z') ||
+                    (c >= 'a' && c <= 'z')) {
 
                 return true;
             }
@@ -736,55 +636,170 @@ public class MainActivity extends Activity {
         }
 
         listenButton.setText(
-                "লেখা শুনুন"
+                englishMode
+                        ? "Listen to text"
+                        : "লেখা শুনুন"
         );
 
         listenButton.setContentDescription(
-                "লেখা শুনুন"
+                englishMode
+                        ? "Listen to text"
+                        : "লেখা শুনুন"
         );
 
         if (isSpeaking) {
 
             pauseButton.setText(
-                    "ভয়েস বন্ধ করুন"
+                    englishMode
+                            ? "Pause voice"
+                            : "ভয়েস বন্ধ করুন"
             );
 
             pauseButton.setContentDescription(
-                    "ভয়েস বন্ধ করুন"
+                    englishMode
+                            ? "Pause voice"
+                            : "ভয়েস বন্ধ করুন"
             );
 
         } else if (isPaused) {
 
             pauseButton.setText(
-                    "ভয়েস চালু করুন"
+                    englishMode
+                            ? "Resume voice"
+                            : "ভয়েস চালু করুন"
             );
 
             pauseButton.setContentDescription(
-                    "ভয়েস চালু করুন"
+                    englishMode
+                            ? "Resume voice"
+                            : "ভয়েস চালু করুন"
             );
 
         } else {
 
             pauseButton.setText(
-                    "ভয়েস বন্ধ করুন"
+                    englishMode
+                            ? "Pause voice"
+                            : "ভয়েস বন্ধ করুন"
             );
 
             pauseButton.setContentDescription(
-                    "ভয়েস বন্ধ করুন"
+                    englishMode
+                            ? "Pause voice"
+                            : "ভয়েস বন্ধ করুন"
             );
         }
     }
 
-    @Override
-    protected void onDestroy() {
+    private void showSettings() {
 
-        if (textToSpeech != null) {
+        LinearLayout layout = new LinearLayout(this);
 
-            textToSpeech.stop();
+        layout.setOrientation(
+                LinearLayout.VERTICAL
+        );
 
-            textToSpeech.shutdown();
-        }
+        layout.setPadding(
+                30,
+                30,
+                30,
+                30
+        );
 
-        super.onDestroy();
-    }
-            }
+        layout.setBackgroundColor(
+                Color.WHITE
+        );
+
+        TextView title = new TextView(this);
+
+        title.setText(
+                englishMode
+                        ? "Settings"
+                        : "সেটিংস"
+        );
+
+        title.setTextSize(28);
+
+        title.setTypeface(
+                Typeface.DEFAULT,
+                Typeface.BOLD
+        );
+
+        title.setTextColor(Color.BLACK);
+
+        title.setGravity(
+                Gravity.CENTER
+        );
+
+        title.setPadding(
+                0,
+                0,
+                0,
+                25
+        );
+
+        layout.addView(title);
+
+        Button languageButton = new Button(this);
+
+        languageButton.setText(
+                englishMode
+                        ? "App Language: English"
+                        : "অ্যাপের ভাষা: বাংলা"
+        );
+
+        languageButton.setContentDescription(
+                englishMode
+                        ? "App Language English"
+                        : "অ্যাপের ভাষা বাংলা"
+        );
+
+        languageButton.setOnClickListener(
+                v -> {
+
+                    englishMode = !englishMode;
+
+                    createMainInterface();
+
+                    Toast.makeText(
+                            this,
+                            englishMode
+                                    ? "Language changed to English"
+                                    : "অ্যাপের ভাষা বাংলায় পরিবর্তন হয়েছে",
+                            Toast.LENGTH_SHORT
+                    );
+                }
+        );
+
+        layout.addView(languageButton);
+
+        Button aboutButton = new Button(this);
+
+        aboutButton.setText(
+                englishMode
+                        ? "About"
+                        : "এবাউট"
+        );
+
+        aboutButton.setContentDescription(
+                englishMode
+                        ? "About"
+                        : "এবাউট"
+        );
+
+        aboutButton.setOnClickListener(
+                v -> showAbout()
+        );
+
+        layout.addView(aboutButton);
+
+        Button helpButton = new Button(this);
+
+        helpButton.setText(
+                englishMode
+                        ? "How to use the app"
+                        : "অ্যাপের ব্যবহারবিধি"
+        );
+
+        helpButton.setContentDescription(
+                en
