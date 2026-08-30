@@ -1,17 +1,23 @@
 package com.banglavoicevideo;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.os.Bundle;
+import android.graphics.Color;
+import android.graphics.Typeface;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
-import android.view.View;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
+import android.speech.tts.Voice;
+import android.view.Gravity;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.Spinner;
+import android.widget.ArrayAdapter;
 import android.widget.TextView;
+import android.content.SharedPreferences;
+import android.view.View;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -22,6 +28,7 @@ public class MainActivity extends Activity {
     private TextToSpeech tts;
     private EditText textInput;
     private TextView statusText;
+
     private Button listenButton;
     private Button pauseButton;
     private Button settingsButton;
@@ -31,171 +38,477 @@ public class MainActivity extends Activity {
     private boolean paused = false;
 
     private int currentPart = 0;
-    private final ArrayList<String> speechParts = new ArrayList<>();
+    private List<String> speechParts = new ArrayList<>();
 
-    private String appLanguage = "bn";
-    private float speechRate = 1.0f;
+    private SharedPreferences preferences;
 
     private static final String PREFS = "BanglaVoiceVideoSettings";
     private static final String PREF_LANGUAGE = "app_language";
     private static final String PREF_SPEED = "voice_speed";
 
-    private static final String STATE_TEXT = "state_text";
-    private static final String STATE_PART = "state_part";
-    private static final String STATE_PAUSED = "state_paused";
+    private String appLanguage = "bn";
+    private float speechRate = 1.0f;
+
+    /*
+     * ছোট অংশে ভাগ করা হচ্ছে।
+     * এতে Pause/Resume করলে অনেক বেশি জায়গা পুনরায় পড়তে হয় না।
+     */
+    private static final int WORDS_PER_PART = 8;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        android.content.SharedPreferences prefs =
-                getSharedPreferences(PREFS, MODE_PRIVATE);
+        preferences = getSharedPreferences(PREFS, MODE_PRIVATE);
 
-        appLanguage = prefs.getString(PREF_LANGUAGE, "bn");
-        speechRate = prefs.getFloat(PREF_SPEED, 1.0f);
+        appLanguage = preferences.getString(
+                PREF_LANGUAGE,
+                "bn"
+        );
 
-        setContentView(R.layout.activity_main);
+        speechRate = preferences.getFloat(
+                PREF_SPEED,
+                1.0f
+        );
 
-        textInput = findViewById(R.id.text_input);
-        statusText = findViewById(R.id.status_text);
-        listenButton = findViewById(R.id.listen_button);
-        pauseButton = findViewById(R.id.pause_button);
-        settingsButton = findViewById(R.id.settings_button);
+        createMainInterface();
 
-        listenButton.setOnClickListener(v -> startReading());
-        pauseButton.setOnClickListener(v -> pauseOrResume());
-        settingsButton.setOnClickListener(v -> showSettings());
-
-        if (savedInstanceState != null) {
-            String text = savedInstanceState.getString(STATE_TEXT, "");
-            currentPart = savedInstanceState.getInt(STATE_PART, 0);
-            paused = savedInstanceState.getBoolean(STATE_PAUSED, false);
-
-            if (!text.isEmpty()) {
-                textInput.setText(text);
-                textInput.setSelection(text.length());
-                speechParts.addAll(splitText(text));
-            }
-        }
-
-        updateUI();
         initializeTTS();
     }
 
     private void initializeTTS() {
-        tts = new TextToSpeech(this, result -> {
-            if (result == TextToSpeech.SUCCESS) {
-                ttsReady = true;
-                tts.setSpeechRate(speechRate);
-                tts.setPitch(1.0f);
-                setupListener();
-                updateUI();
-            } else {
-                ttsReady = false;
-                setStatus(getText("ভয়েস প্রস্তুত নয়", "Voice is not ready"));
-            }
-        });
-    }
+        tts = new TextToSpeech(
+                this,
+                result -> {
 
-    private void setupListener() {
-        tts.setOnUtteranceProgressListener(
-                new UtteranceProgressListener() {
+                    if (result == TextToSpeech.SUCCESS) {
 
-            @Override
-            public void onStart(String id) {
-                runOnUiThread(() -> {
-                    speaking = true;
-                    setStatus(getText("ভয়েস চলছে", "Voice is playing"));
-                    updateUI();
-                });
-            }
+                        ttsReady = true;
 
-            @Override
-            public void onDone(String id) {
-                runOnUiThread(() -> {
+                        tts.setSpeechRate(
+                                speechRate
+                        );
 
-                    if (paused) return;
+                        tts.setPitch(1.0f);
 
-                    currentPart++;
+                        setupTTSListener();
 
-                    if (currentPart < speechParts.size()) {
-                        speakCurrentPart();
+                        setStatus(
+                                getText("প্রস্তুত", "Ready")
+                        );
+
+                        updateButtons();
+
                     } else {
-                        speaking = false;
-                        paused = false;
-                        currentPart = 0;
+
+                        ttsReady = false;
 
                         setStatus(
                                 getText(
-                                        "পড়া শেষ হয়েছে",
-                                        "Reading finished"
+                                        "ভয়েস সিস্টেম প্রস্তুত করা যায়নি",
+                                        "TTS could not be initialized"
                                 )
                         );
-
-                        updateUI();
                     }
-                });
-            }
+                }
+        );
+    }
 
-            @Override
-            public void onError(String id) {
-                runOnUiThread(() -> {
-                    speaking = false;
-                    setStatus(
-                            getText(
-                                    "ভয়েস পড়তে সমস্যা হয়েছে",
-                                    "Voice playback error"
-                            )
-                    );
-                    updateUI();
-                });
-            }
-        });
+    private void setupTTSListener() {
+
+        tts.setOnUtteranceProgressListener(
+                new UtteranceProgressListener() {
+
+                    @Override
+                    public void onStart(
+                            String utteranceId) {
+
+                        runOnUiThread(() -> {
+
+                            speaking = true;
+
+                            setStatus(
+                                    getText(
+                                            "ভয়েস চলছে",
+                                            "Voice is playing"
+                                    )
+                            );
+
+                            updateButtons();
+                        });
+                    }
+
+                    @Override
+                    public void onDone(
+                            String utteranceId) {
+
+                        runOnUiThread(() -> {
+
+                            if (paused) {
+                                return;
+                            }
+
+                            currentPart++;
+
+                            if (currentPart <
+                                    speechParts.size()) {
+
+                                speakCurrentPart();
+
+                            } else {
+
+                                speaking = false;
+                                paused = false;
+                                currentPart = 0;
+
+                                setStatus(
+                                        getText(
+                                                "পড়া শেষ হয়েছে",
+                                                "Reading finished"
+                                        )
+                                );
+
+                                updateButtons();
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onError(
+                            String utteranceId) {
+
+                        runOnUiThread(() -> {
+
+                            speaking = false;
+
+                            setStatus(
+                                    getText(
+                                            "ভয়েস পড়তে সমস্যা হয়েছে",
+                                            "Voice playback error"
+                                    )
+                            );
+
+                            updateButtons();
+                        });
+                    }
+                }
+        );
+    }
+
+    private void createMainInterface() {
+
+        LinearLayout root =
+                new LinearLayout(this);
+
+        root.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        root.setPadding(
+                24,
+                24,
+                24,
+                24
+        );
+
+        root.setBackgroundColor(
+                Color.WHITE
+        );
+
+        TextView title =
+                new TextView(this);
+
+        title.setText(
+                getText(
+                        "BanglaVoiceVideo",
+                        "BanglaVoiceVideo"
+                )
+        );
+
+        title.setTextSize(26);
+
+        title.setTypeface(
+                Typeface.DEFAULT,
+                Typeface.BOLD
+        );
+
+        title.setTextColor(
+                Color.BLACK
+        );
+
+        title.setGravity(
+                Gravity.CENTER
+        );
+
+        title.setPadding(
+                0,
+                0,
+                0,
+                20
+        );
+
+        title.setContentDescription(
+                "BanglaVoiceVideo"
+        );
+
+        root.addView(
+                title,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+        );
+
+        ScrollView textScroll =
+                new ScrollView(this);
+
+        textScroll.setFillViewport(true);
+
+        textInput =
+                new EditText(this);
+
+        textInput.setHint(
+                getText(
+                        "এখানে বাংলা বা English লেখা লিখুন",
+                        "Write Bangla or English text here"
+                )
+        );
+
+        textInput.setTextSize(18);
+
+        textInput.setTextColor(
+                Color.BLACK
+        );
+
+        textInput.setHintTextColor(
+                Color.GRAY
+        );
+
+        textInput.setGravity(
+                Gravity.TOP | Gravity.START
+        );
+
+        textInput.setPadding(
+                20,
+                20,
+                20,
+                20
+        );
+
+        textInput.setSingleLine(false);
+
+        textInput.setMaxLines(
+                Integer.MAX_VALUE
+        );
+
+        textInput.setVerticalScrollBarEnabled(
+                true
+        );
+
+        textInput.setContentDescription(
+                getText(
+                        "বাংলা অথবা English লেখা লেখার ঘর",
+                        "Text input box for Bangla or English"
+                )
+        );
+
+        textScroll.addView(
+                textInput,
+                new ScrollView.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        500
+                )
+        );
+
+        root.addView(
+                textScroll,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        0,
+                        1.0f
+                )
+        );
+
+        listenButton =
+                new Button(this);
+
+        listenButton.setText(
+                getText(
+                        "লেখা শুনুন",
+                        "Listen"
+                )
+        );
+
+        listenButton.setContentDescription(
+                getText(
+                        "লেখা শুনুন",
+                        "Listen to text"
+                )
+        );
+
+        listenButton.setOnClickListener(
+                v -> startReading()
+        );
+
+        root.addView(
+                listenButton,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+        );
+
+        pauseButton =
+                new Button(this);
+
+        pauseButton.setOnClickListener(
+                v -> pauseOrResume()
+        );
+
+        root.addView(
+                pauseButton,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+        );
+
+        settingsButton =
+                new Button(this);
+
+        settingsButton.setText(
+                getText(
+                        "⚙ সেটিংস",
+                        "⚙ Settings"
+                )
+        );
+
+        settingsButton.setContentDescription(
+                getText(
+                        "সেটিংস",
+                        "Settings"
+                )
+        );
+
+        settingsButton.setOnClickListener(
+                v -> showSettings()
+        );
+
+        root.addView(
+                settingsButton,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+        );
+
+        statusText =
+                new TextView(this);
+
+        statusText.setText(
+                getText(
+                        "বর্তমান অবস্থা: প্রস্তুত",
+                        "Current status: Ready"
+                )
+        );
+
+        statusText.setTextSize(17);
+
+        statusText.setTextColor(
+                Color.BLACK
+        );
+
+        statusText.setGravity(
+                Gravity.CENTER
+        );
+
+        statusText.setPadding(
+                0,
+                15,
+                0,
+                5
+        );
+
+        statusText.setContentDescription(
+                getText(
+                        "বর্তমান অবস্থা",
+                        "Current status"
+                )
+        );
+
+        root.addView(
+                statusText,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+        );
+
+        setContentView(root);
+
+        updateButtons();
     }
 
     private void startReading() {
 
-        if (!ttsReady || tts == null) {
+        if (!ttsReady) {
+
             setStatus(
                     getText(
                             "ভয়েস সিস্টেম প্রস্তুত নয়",
                             "TTS is not ready"
                     )
             );
+
             return;
         }
 
-        String text = textInput.getText().toString().trim();
+        String text =
+                textInput
+                        .getText()
+                        .toString()
+                        .trim();
 
         if (text.isEmpty()) {
+
             setStatus(
                     getText(
                             "আগে কিছু লেখা লিখুন",
                             "Please enter some text first"
                     )
             );
+
             return;
         }
 
-        safeStop();
+        tts.stop();
 
         speechParts.clear();
-        speechParts.addAll(splitText(text));
+
+        speechParts.addAll(
+                splitText(text)
+        );
 
         currentPart = 0;
-        speaking = false;
         paused = false;
+        speaking = false;
 
         speakCurrentPart();
     }
 
     private void pauseOrResume() {
 
-        if (!ttsReady || speechParts.isEmpty()) return;
+        if (!ttsReady) {
+            return;
+        }
 
         if (speaking) {
 
-            safeStop();
+            /*
+             * বর্তমান ছোট অংশটি বন্ধ করা হচ্ছে।
+             * Resume করলে এই ছোট অংশ থেকেই আবার শুরু হবে।
+             */
+            tts.stop();
 
             speaking = false;
             paused = true;
@@ -207,9 +520,14 @@ public class MainActivity extends Activity {
                     )
             );
 
-            updateUI();
+            updateButtons();
 
-        } else if (paused) {
+            return;
+        }
+
+        if (paused &&
+                currentPart <
+                        speechParts.size()) {
 
             paused = false;
 
@@ -226,97 +544,227 @@ public class MainActivity extends Activity {
 
     private void speakCurrentPart() {
 
-        if (!ttsReady || tts == null) return;
-
-        if (currentPart >= speechParts.size()) return;
-
-        String text = speechParts.get(currentPart).trim();
-
-        if (text.isEmpty()) {
-            currentPart++;
-            speakCurrentPart();
+        if (!ttsReady) {
             return;
         }
 
+        if (currentPart < 0 ||
+                currentPart >=
+                        speechParts.size()) {
+
+            return;
+        }
+
+        String part =
+                speechParts
+                        .get(currentPart)
+                        .trim();
+
+        if (part.isEmpty()) {
+
+            currentPart++;
+
+            speakCurrentPart();
+
+            return;
+        }
+
+        chooseLanguage(part);
+
+        String id =
+                "part_" + currentPart;
+
+        tts.speak(
+                part,
+                TextToSpeech.QUEUE_FLUSH,
+                null,
+                id
+        );
+
+        speaking = true;
+
+        updateButtons();
+    }
+
+    private List<String> splitText(
+            String text) {
+
+        List<String> result =
+                new ArrayList<>();
+
+        String[] words =
+                text.split("\\s+");
+
+        StringBuilder part =
+                new StringBuilder();
+
+        int count = 0;
+
+        for (String word : words) {
+
+            if (word.isEmpty()) {
+                continue;
+            }
+
+            if (count >=
+                    WORDS_PER_PART) {
+
+                String completed =
+                        part.toString().trim();
+
+                if (!completed.isEmpty()) {
+                    result.add(completed);
+                }
+
+                part.setLength(0);
+                count = 0;
+            }
+
+            if (part.length() > 0) {
+                part.append(" ");
+            }
+
+            part.append(word);
+
+            count++;
+        }
+
+        String last =
+                part.toString().trim();
+
+        if (!last.isEmpty()) {
+            result.add(last);
+        }
+
+        return result;
+    }
+
+    private void chooseLanguage(
+            String text) {
+
         try {
 
-            if (containsBangla(text)) {
-                tts.setLanguage(new Locale("bn", "BD"));
-            } else {
-                tts.setLanguage(Locale.US);
-            }
+            boolean bangla =
+                    containsBangla(text);
 
-            String id =
-                    "speech_" +
-                    currentPart +
-                    "_" +
-                    System.currentTimeMillis();
+            boolean english =
+                    containsEnglish(text);
 
-            tts.speak(
-                    text,
-                    TextToSpeech.QUEUE_FLUSH,
-                    null,
-                    id
-            );
+            if (bangla && !english) {
 
-            speaking = true;
-            updateUI();
-
-        } catch (Exception e) {
-
-            speaking = false;
-
-            setStatus(
-                    getText(
-                            "ভয়েস চালু করা যায়নি",
-                            "Could not start voice"
-                    )
-            );
-
-            updateUI();
-        }
-    }
-
-    private List<String> splitText(String text) {
-
-        ArrayList<String> parts = new ArrayList<>();
-
-        String normalized = text
-                .replace('\n', ' ')
-                .replace('\r', ' ')
-                .replaceAll("\\s+", " ")
-                .trim();
-
-        if (normalized.isEmpty()) return parts;
-
-        String[] sentences =
-                normalized.split(
-                        "(?<=[।!?|.,])\\s+"
+                setBestVoice(
+                        new Locale(
+                                "bn",
+                                "BD"
+                        )
                 );
 
-        for (String sentence : sentences) {
+            } else if (english &&
+                    !bangla) {
 
-            sentence = sentence.trim();
+                setBestVoice(
+                        Locale.US
+                );
 
-            if (!sentence.isEmpty()) {
-                parts.add(sentence);
+            } else if (bangla) {
+
+                setBestVoice(
+                        new Locale(
+                                "bn",
+                                "BD"
+                        )
+                );
+
+            } else {
+
+                setBestVoice(
+                        Locale.US
+                );
             }
-        }
 
-        if (parts.isEmpty()) {
-            parts.add(normalized);
+        } catch (Exception ignored) {
         }
-
-        return parts;
     }
 
-    private boolean containsBangla(String text) {
+    private void setBestVoice(
+            Locale locale) {
 
-        for (int i = 0; i < text.length(); i++) {
+        if (tts == null) {
+            return;
+        }
 
-            char c = text.charAt(i);
+        Voice fallback = null;
 
-            if (c >= '\u0980' && c <= '\u09FF') {
+        try {
+
+            if (tts.getVoices() == null) {
+
+                tts.setLanguage(locale);
+
+                return;
+            }
+
+            for (Voice voice :
+                    tts.getVoices()) {
+
+                Locale voiceLocale =
+                        voice.getLocale();
+
+                if (voiceLocale == null) {
+                    continue;
+                }
+
+                if (voiceLocale
+                        .getLanguage()
+                        .equals(
+                                locale.getLanguage()
+                        )) {
+
+                    if (!voice
+                            .isNetworkConnectionRequired()) {
+
+                        tts.setVoice(voice);
+
+                        return;
+                    }
+
+                    if (fallback == null) {
+                        fallback = voice;
+                    }
+                }
+            }
+
+            if (fallback != null) {
+
+                tts.setVoice(fallback);
+
+            } else {
+
+                tts.setLanguage(locale);
+            }
+
+        } catch (Exception ignored) {
+
+            try {
+                tts.setLanguage(locale);
+            } catch (Exception ignoredAgain) {
+            }
+        }
+    }
+
+    private boolean containsBangla(
+            String text) {
+
+        for (int i = 0;
+                i < text.length();
+                i++) {
+
+            char c =
+                    text.charAt(i);
+
+            if (c >= '\u0980' &&
+                    c <= '\u09FF') {
+
                 return true;
             }
         }
@@ -324,17 +772,53 @@ public class MainActivity extends Activity {
         return false;
     }
 
-    private void updateUI() {
+    private boolean containsEnglish(
+            String text) {
 
-        if (listenButton == null) return;
+        for (int i = 0;
+                i < text.length();
+                i++) {
+
+            char c =
+                    text.charAt(i);
+
+            if ((c >= 'A' &&
+                    c <= 'Z') ||
+                    (c >= 'a' &&
+                    c <= 'z')) {
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void updateButtons() {
+
+        if (listenButton == null ||
+                pauseButton == null) {
+
+            return;
+        }
 
         listenButton.setText(
-                getText("ভয়েস শুনুন", "Listen Voice")
+                getText(
+                        "লেখা শুনুন",
+                        "Listen"
+                )
         );
 
         if (speaking) {
 
             pauseButton.setText(
+                    getText(
+                            "ভয়েস বন্ধ করুন",
+                            "Pause Voice"
+                    )
+            );
+
+            pauseButton.setContentDescription(
                     getText(
                             "ভয়েস বন্ধ করুন",
                             "Pause Voice"
@@ -350,6 +834,13 @@ public class MainActivity extends Activity {
                     )
             );
 
+            pauseButton.setContentDescription(
+                    getText(
+                            "ভয়েস চালু করুন",
+                            "Resume Voice"
+                    )
+            );
+
         } else {
 
             pauseButton.setText(
@@ -358,344 +849,20 @@ public class MainActivity extends Activity {
                             "Pause Voice"
                     )
             );
+
+            pauseButton.setContentDescription(
+                    getText(
+                            "ভয়েস বন্ধ করুন",
+                            "Pause Voice"
+                    )
+            );
         }
-
-        settingsButton.setText(
-                getText("⚙ সেটিংস", "⚙ Settings")
-        );
-
-        textInput.setContentDescription(
-                getText(
-                        "বাংলা অথবা English লেখা লেখার ঘর",
-                        "Bangla or English text input"
-                )
-        );
-
-        listenButton.setContentDescription(
-                listenButton.getText().toString()
-        );
-
-        pauseButton.setContentDescription(
-                pauseButton.getText().toString()
-        );
-
-        settingsButton.setContentDescription(
-                getText("সেটিংস", "Settings")
-        );
     }
 
     private void showSettings() {
 
-        View view = getLayoutInflater().inflate(
-                R.layout.dialog_settings,
-                null
-        );
-
-        TextView languageLabel =
-                view.findViewById(R.id.language_label);
-
-        Spinner languageSpinner =
-                view.findViewById(R.id.language_spinner);
-
-        TextView speedLabel =
-                view.findViewById(R.id.speed_label);
-
-        Spinner speedSpinner =
-                view.findViewById(R.id.speed_spinner);
-
-        Button aboutButton =
-                view.findViewById(R.id.about_button);
-
-        languageLabel.setText(
-                getText("অ্যাপের ভাষা", "App Language")
-        );
-
-        speedLabel.setText(
-                getText("ভয়েসের গতি", "Voice Speed")
-        );
-
-        aboutButton.setText(
-                getText("ℹ অ্যাপ সম্পর্কে", "ℹ About")
-        );
-
-        String[] languages = {
-                "বাংলা",
-                "English"
-        };
-
-        ArrayAdapter<String> languageAdapter =
-                new ArrayAdapter<>(
-                        this,
-                        android.R.layout.simple_spinner_item,
-                        languages
-                );
-
-        languageAdapter.setDropDownViewResource(
-                android.R.layout.simple_spinner_dropdown_item
-        );
-
-        languageSpinner.setAdapter(languageAdapter);
-
-        languageSpinner.setSelection(
-                "en".equals(appLanguage) ? 1 : 0
-        );
-
-        languageSpinner.setOnItemSelectedListener(
-                new AdapterView.OnItemSelectedListener() {
-
-                    private boolean first = true;
-
-                    @Override
-                    public void onItemSelected(
-                            AdapterView<?> parent,
-                            View view,
-                            int position,
-                            long id) {
-
-                        if (first) {
-                            first = false;
-                            return;
-                        }
-
-                        String newLanguage =
-                                position == 1 ? "en" : "bn";
-
-                        if (!newLanguage.equals(appLanguage)) {
-
-                            appLanguage = newLanguage;
-
-                            getSharedPreferences(
-                                    PREFS,
-                                    MODE_PRIVATE
-                            ).edit()
-                                    .putString(
-                                            PREF_LANGUAGE,
-                                            appLanguage
-                                    )
-                                    .apply();
-
-                            recreate();
-                        }
-                    }
-
-                    @Override
-                    public void onNothingSelected(
-                            AdapterView<?> parent) {
-                    }
-                }
-        );
-
-        String[] speeds = {
-                getText("ধীর", "Slow"),
-                getText("স্বাভাবিক", "Normal"),
-                getText("দ্রুত", "Fast"),
-                getText("খুব দ্রুত", "Very Fast")
-        };
-
-        ArrayAdapter<String> speedAdapter =
-                new ArrayAdapter<>(
-                        this,
-                        android.R.layout.simple_spinner_item,
-                        speeds
-                );
-
-        speedAdapter.setDropDownViewResource(
-                android.R.layout.simple_spinner_dropdown_item
-        );
-
-        speedSpinner.setAdapter(speedAdapter);
-
-        int selected = 1;
-
-        if (speechRate <= 0.85f) {
-            selected = 0;
-        } else if (speechRate >= 1.25f) {
-            selected = 3;
-        } else if (speechRate >= 1.10f) {
-            selected = 2;
-        }
-
-        speedSpinner.setSelection(selected);
-
-        speedSpinner.setOnItemSelectedListener(
-                new AdapterView.OnItemSelectedListener() {
-
-                    @Override
-                    public void onItemSelected(
-                            AdapterView<?> parent,
-                            View view,
-                            int position,
-                            long id) {
-
-                        if (position == 0) {
-                            speechRate = 0.85f;
-                        } else if (position == 1) {
-                            speechRate = 1.0f;
-                        } else if (position == 2) {
-                            speechRate = 1.15f;
-                        } else {
-                            speechRate = 1.30f;
-                        }
-
-                        getSharedPreferences(
-                                PREFS,
-                                MODE_PRIVATE
-                        ).edit()
-                                .putFloat(
-                                        PREF_SPEED,
-                                        speechRate
-                                )
-                                .apply();
-
-                        if (tts != null && ttsReady) {
-                            tts.setSpeechRate(speechRate);
-                        }
-                    }
-
-                    @Override
-                    public void onNothingSelected(
-                            AdapterView<?> parent) {
-                    }
-                }
-        );
-
-        aboutButton.setOnClickListener(
-                v -> showAbout()
-        );
-
-        new AlertDialog.Builder(this)
-                .setTitle(
-                        getText("সেটিংস", "Settings")
-                )
-                .setView(view)
-                .setPositiveButton(
-                        getText("বন্ধ করুন", "Close"),
-                        null
-                )
-                .show();
-    }
-
-    private void showAbout() {
-
-        String about = getText(
-                "BanglaVoiceVideo\n\n" +
-                        "বাংলা ও English লেখা থেকে " +
-                        "ভয়েস তৈরি করার জন্য এই অ্যাপ।\n\n" +
-                        "দৃষ্টি প্রতিবন্ধী ব্যবহারকারীদের " +
-                        "জন্য TalkBack সহায়তা বজায় রাখা হয়েছে।\n\n" +
-                        "নাম: MD Raju Hossain\n" +
-                        "জেলা: রংপুর\n" +
-                        "WhatsApp: 01744614234",
-
-                "BanglaVoiceVideo\n\n" +
-                        "An app for creating voice from " +
-                        "Bangla and English text.\n\n" +
-                        "TalkBack accessibility is maintained " +
-                        "for visually impaired users.\n\n" +
-                        "Name: MD Raju Hossain\n" +
-                        "District: Rangpur\n" +
-                        "WhatsApp: 01744614234"
-        );
-
-        TextView text = new TextView(this);
-
-        text.setText(about);
-        text.setTextSize(17);
-        text.setPadding(25, 20, 25, 20);
-        text.setContentDescription(about);
-
-        new AlertDialog.Builder(this)
-                .setTitle(
-                        getText(
-                                "অ্যাপ সম্পর্কে",
-                                "About"
-                        )
-                )
-                .setView(text)
-                .setPositiveButton(
-                        getText("বন্ধ করুন", "Close"),
-                        null
-                )
-                .show();
-    }
-
-    private String getText(
-            String bangla,
-            String english) {
-
-        return "en".equals(appLanguage)
-                ? english
-                : bangla;
-    }
-
-    private void setStatus(String message) {
-
-        if (statusText != null) {
-
-            String full =
-                    getText(
-                            "বর্তমান অবস্থা: ",
-                            "Current status: "
-                    ) + message;
-
-            statusText.setText(full);
-            statusText.setContentDescription(full);
-        }
-    }
-
-    private void safeStop() {
-
-        if (tts != null && ttsReady) {
-
-            try {
-                tts.stop();
-            } catch (Exception ignored) {
-            }
-        }
-    }
-
-    @Override
-    protected void onSaveInstanceState(
-            Bundle outState) {
-
-        super.onSaveInstanceState(outState);
-
-        if (textInput != null) {
-
-            outState.putString(
-                    STATE_TEXT,
-                    textInput.getText().toString()
-            );
-        }
-
-        outState.putInt(
-                STATE_PART,
-                currentPart
-        );
-
-        outState.putBoolean(
-                STATE_PAUSED,
-                paused
-        );
-    }
-
-    @Override
-    protected void onDestroy() {
-
-        safeStop();
-
-        if (tts != null) {
-
-            try {
-                tts.shutdown();
-            } catch (Exception ignored) {
-            }
-
-            tts = null;
-        }
-
-        ttsReady = false;
-
-        super.onDestroy();
-    }
-                            }
+        LinearLayout layout =
+                new LinearLayout(this);
+
+        layout.setOrientation(
+                LinearLayou
