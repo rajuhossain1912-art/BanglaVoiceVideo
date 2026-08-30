@@ -865,4 +865,452 @@ public class MainActivity extends Activity {
                 new LinearLayout(this);
 
         layout.setOrientation(
-                LinearLayou
+                LinearLayout.VERTICAL
+        );
+
+        layout.setPadding(
+                30,
+                20,
+                30,
+                20
+        );
+
+        TextView heading =
+                new TextView(this);
+
+        heading.setText(
+                getText(
+                        "সেটিংস",
+                        "Settings"
+                )
+        );
+
+        heading.setTextSize(24);
+
+        heading.setTypeface(
+                Typeface.DEFAULT,
+                Typeface.BOLD
+        );
+
+        heading.setTextColor(
+                Color.BLACK
+        );
+
+        layout.addView(heading);
+
+        TextView languageLabel =
+                new TextView(this);
+
+        languageLabel.setText(
+                getText(
+                        "অ্যাপের ভাষা",
+                        "App Language"
+                )
+        );
+
+        languageLabel.setTextSize(18);
+
+        languageLabel.setTextColor(
+                Color.BLACK
+        );
+
+        languageLabel.setPadding(
+                0,
+                25,
+                0,
+                10
+        );
+
+        layout.addView(languageLabel);
+
+        Button banglaButton =
+                new Button(this);
+
+        banglaButton.setText(
+                "বাংলা"
+        );
+
+        banglaButton.setContentDescription(
+                "অ্যাপের ভাষা বাংলা"
+        );
+
+        banglaButton.setOnClickListener(
+                v -> {
+
+                    appLanguage = "bn";
+
+                    preferences.edit()
+                            .putString(
+                                    PREF_LANGUAGE,
+                                    "bn"
+                            )
+                            .apply();
+
+                    showRestartMessage();
+                }
+        );
+
+        layout.addView(banglaButton);
+
+        Button englishButton =
+                new Button(this);
+
+        englishButton.setText(
+                "English"
+        );
+
+        englishButton.setContentDescription(
+                "App language English"
+        );
+
+        englishButton.setOnClickListener(
+                v -> {
+
+                    appLanguage = "en";
+
+                    preferences.edit()
+                            .putString(
+                                    PREF_LANGUAGE,
+                                    "en"
+                            )
+                            .apply();
+
+                    showRestartMessage();
+                }
+        );
+
+        layout.addView(englishButton);
+
+        TextView speedLabel =
+                new TextView(this);
+
+        speedLabel.setText(
+                getText(
+                        "ভয়েসের গতি",
+                        "Voice Speed"
+                )
+        );
+
+        speedLabel.setTextSize(18);
+
+        speedLabel.setTextColor(
+                Color.BLACK
+        );
+
+        speedLabel.setPadding(
+                0,
+                25,
+                0,
+                10
+        );
+
+        layout.addView(speedLabel);
+
+        Spinner speedSpinner =
+                new Spinner(this);
+
+        String[] speeds = {
+
+                getText(
+                        "ধীর",
+                        "Slow"
+                ),
+
+                getText(
+                        "স্বাভাবিক",
+                        "Normal"
+                ),
+
+                getText(
+                        "দ্রুত",
+                        "Fast"
+                ),
+
+                getText(
+                        "খুব দ্রুত",
+                        "Very Fast"
+                )
+        };
+
+        ArrayAdapter<String> adapter =
+                new ArrayAdapter<>(
+                        this,
+                        android.R.layout.simple_spinner_item,
+                        speeds
+                );
+
+        adapter.setDropDownViewResource(
+                android.R.layout
+                        .simple_spinner_dropdown_item
+        );
+
+        speedSpinner.setAdapter(adapter);
+
+        int selected = 1;
+
+        if (speechRate <= 0.85f) {
+
+            selected = 0;
+
+        } else if (speechRate >= 1.25f) {
+
+            selected = 3;
+
+        } else if (speechRate >= 1.10f) {
+
+            selected = 2;
+        }
+
+        speedSpinner.setSelection(selected);
+
+        speedSpinner.setContentDescription(
+                getText(
+                        "ভয়েসের গতি নির্বাচন",
+                        "Select voice speed"
+                )
+        );
+
+        speedSpinner.setOnItemSelectedListener(
+                new android.widget.AdapterView
+                        .OnItemSelectedListener() {
+
+                    @Override
+                    public void onItemSelected(
+                            android.widget.AdapterView<?> parent,
+                            View view,
+                            int position,
+                            long id) {
+
+                        if (position == 0) {
+
+                            speechRate = 0.85f;
+
+                        } else if (position == 1) {
+
+                            speechRate = 1.0f;
+
+                        } else if (position == 2) {
+
+                            speechRate = 1.15f;
+
+                        } else {
+
+                            speechRate = 1.30f;
+                        }
+
+                        preferences.edit()
+                                .putFloat(
+                                        PREF_SPEED,
+                                        speechRate
+                                )
+                                .apply();
+
+                        if (tts != null &&
+                                ttsReady) {
+
+                            tts.setSpeechRate(
+                                    speechRate
+                            );
+                        }
+                    }
+
+                    @Override
+                    public void onNothingSelected(
+                            android.widget.AdapterView<?> parent) {
+                    }
+                }
+        );
+
+        layout.addView(
+                speedSpinner
+        );
+
+        Button aboutButton =
+                new Button(this);
+
+        aboutButton.setText(
+                getText(
+                        "ℹ About",
+                        "ℹ About"
+                )
+        );
+
+        aboutButton.setContentDescription(
+                getText(
+                        "অ্যাপ সম্পর্কে",
+                        "About the app"
+                )
+        );
+
+        aboutButton.setOnClickListener(
+                v -> showAbout()
+        );
+
+        layout.addView(
+                aboutButton
+        );
+
+        android.app.AlertDialog dialog =
+                new android.app.AlertDialog.Builder(
+                        this
+                )
+                        .setView(layout)
+                        .setPositiveButton(
+                                getText(
+                                        "বন্ধ করুন",
+                                        "Close"
+                                ),
+                                null
+                        )
+                        .create();
+
+        dialog.show();
+    }
+
+    private void showAbout() {
+
+        String aboutText =
+                getText(
+                        "BanglaVoiceVideo\n\n"
+                                + "বাংলা ও English লেখা থেকে "
+                                + "ভয়েস এবং ভবিষ্যতে ভিডিও তৈরি "
+                                + "করার জন্য এই অ্যাপটি তৈরি করা হচ্ছে।\n\n"
+                                + "দৃষ্টি প্রতিবন্ধী ব্যবহারকারীদের "
+                                + "জন্য অ্যাপটিকে সহজ ও TalkBack "
+                                + "সহায়ক রাখার লক্ষ্য রয়েছে.\n\n"
+                                + "নাম: MD Raju Hossain\n"
+                                + "জেলা: রংপুর\n"
+                                + "WhatsApp: 01744614234\n\n"
+                                + "এই অ্যাপটি ধাপে ধাপে উন্নত করা হবে.",
+
+                        "BanglaVoiceVideo\n\n"
+                                + "This app is being developed to "
+                                + "create voice and, in the future, "
+                                + "videos from Bangla and English text.\n\n"
+                                + "The goal is to make the app simple "
+                                + "and accessible for visually impaired "
+                                + "users, including TalkBack support.\n\n"
+                                + "Name: MD Raju Hossain\n"
+                                + "District: Rangpur\n"
+                                + "WhatsApp: 01744614234\n\n"
+                                + "This app will be improved step by step."
+                );
+
+        TextView aboutView =
+                new TextView(this);
+
+        aboutView.setText(
+                aboutText
+        );
+
+        aboutView.setTextSize(17);
+
+        aboutView.setTextColor(
+                Color.BLACK
+        );
+
+        aboutView.setPadding(
+                25,
+                20,
+                25,
+                20
+        );
+
+        aboutView.setContentDescription(
+                aboutText
+        );
+
+        ScrollView scroll =
+                new ScrollView(this);
+
+        scroll.addView(
+                aboutView
+        );
+
+        new android.app.AlertDialog.Builder(
+                this
+        )
+                .setTitle(
+                        getText(
+                                "About",
+                                "About"
+                        )
+                )
+                .setView(scroll)
+                .setPositiveButton(
+                        getText(
+                                "বন্ধ করুন",
+                                "Close"
+                        ),
+                        null
+                )
+                .show();
+    }
+
+    private void showRestartMessage() {
+
+        new android.app.AlertDialog.Builder(
+                this
+        )
+                .setTitle(
+                        getText(
+                                "ভাষা পরিবর্তন",
+                                "Language changed"
+                        )
+                )
+                .setMessage(
+                        getText(
+                                "অ্যাপটি বন্ধ করে আবার খুললে "
+                                        + "নতুন ভাষা পুরোপুরি কার্যকর হবে।",
+                                "Close and reopen the app to "
+                                        + "apply the new language fully."
+                        )
+                )
+                .setPositiveButton(
+                        getText(
+                                "ঠিক আছে",
+                                "OK"
+                        ),
+                        null
+                )
+                .show();
+    }
+
+    private String getText(
+            String bangla,
+            String english) {
+
+        if ("en".equals(appLanguage)) {
+            return english;
+        }
+
+        return bangla;
+    }
+
+    private void setStatus(
+            String message) {
+
+        if (statusText != null) {
+
+            statusText.setText(
+                    getText(
+                            "বর্তমান অবস্থা: ",
+                            "Current status: "
+                    ) + message
+            );
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+
+        if (tts != null) {
+
+            tts.stop();
+
+            tts.shutdown();
+        }
+
+        super.onDestroy();
+    }
+}
