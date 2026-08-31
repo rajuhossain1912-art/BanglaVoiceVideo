@@ -18,6 +18,7 @@ import android.widget.ArrayAdapter;
 import android.widget.TextView;
 import android.content.SharedPreferences;
 import android.view.View;
+import android.widget.AdapterView;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -60,26 +61,22 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        preferences =
-                getSharedPreferences(
-                        PREFS,
-                        MODE_PRIVATE
-                );
+        preferences = getSharedPreferences(
+                PREFS,
+                MODE_PRIVATE
+        );
 
-        appLanguage =
-                preferences.getString(
-                        PREF_LANGUAGE,
-                        "bn"
-                );
+        appLanguage = preferences.getString(
+                PREF_LANGUAGE,
+                "bn"
+        );
 
-        speechRate =
-                preferences.getFloat(
-                        PREF_SPEED,
-                        1.0f
-                );
+        speechRate = preferences.getFloat(
+                PREF_SPEED,
+                1.0f
+        );
 
         createMainInterface();
-
         initializeTTS();
     }
 
@@ -89,8 +86,7 @@ public class MainActivity extends Activity {
                 this,
                 result -> {
 
-                    if (result ==
-                            TextToSpeech.SUCCESS) {
+                    if (result == TextToSpeech.SUCCESS) {
 
                         ttsReady = true;
 
@@ -473,8 +469,7 @@ public class MainActivity extends Activity {
         }
 
         String text =
-                textInput
-                        .getText()
+                textInput.getText()
                         .toString()
                         .trim();
 
@@ -556,19 +551,16 @@ public class MainActivity extends Activity {
         if (currentPart < 0 ||
                 currentPart >=
                         speechParts.size()) {
-
             return;
         }
 
         String part =
-                speechParts
-                        .get(currentPart)
+                speechParts.get(currentPart)
                         .trim();
 
         if (part.isEmpty()) {
 
             currentPart++;
-
             speakCurrentPart();
 
             return;
@@ -705,7 +697,6 @@ public class MainActivity extends Activity {
             if (tts.getVoices() == null) {
 
                 tts.setLanguage(locale);
-
                 return;
             }
 
@@ -729,7 +720,6 @@ public class MainActivity extends Activity {
                             .isNetworkConnectionRequired()) {
 
                         tts.setVoice(voice);
-
                         return;
                     }
 
@@ -803,7 +793,6 @@ public class MainActivity extends Activity {
 
         if (listenButton == null ||
                 pauseButton == null) {
-
             return;
         }
 
@@ -903,6 +892,11 @@ public class MainActivity extends Activity {
 
         layout.addView(heading);
 
+        /*
+         * App Language
+         * একটি অপশন হিসেবে থাকবে।
+         * চাপ দিলে বাংলা / English নির্বাচন করা যাবে।
+         */
         TextView languageLabel =
                 new TextView(this);
 
@@ -926,70 +920,95 @@ public class MainActivity extends Activity {
                 10
         );
 
-        layout.addView(
-                languageLabel
-        );
+        layout.addView(languageLabel);
 
-        Button banglaButton =
-                new Button(this);
+        Spinner languageSpinner =
+                new Spinner(this);
 
-        banglaButton.setText(
-                "বাংলা"
-        );
-
-        banglaButton.setContentDescription(
-                "অ্যাপের ভাষা বাংলা"
-        );
-
-        banglaButton.setOnClickListener(
-                v -> {
-
-                    appLanguage = "bn";
-
-                    preferences.edit()
-                            .putString(
-                                    PREF_LANGUAGE,
-                                    "bn"
-                            )
-                            .apply();
-
-                    recreate();
-                }
-        );
-
-        layout.addView(
-                banglaButton
-        );
-
-        Button englishButton =
-                new Button(this);
-
-        englishButton.setText(
+        String[] languages = {
+                "বাংলা",
                 "English"
+        };
+
+        ArrayAdapter<String> languageAdapter =
+                new ArrayAdapter<>(
+                        this,
+                        android.R.layout.simple_spinner_item,
+                        languages
+                );
+
+        languageAdapter.setDropDownViewResource(
+                android.R.layout.simple_spinner_dropdown_item
         );
 
-        englishButton.setContentDescription(
-                "App language English"
+        languageSpinner.setAdapter(
+                languageAdapter
         );
 
-        englishButton.setOnClickListener(
-                v -> {
+        if ("en".equals(appLanguage)) {
+            languageSpinner.setSelection(1);
+        } else {
+            languageSpinner.setSelection(0);
+        }
 
-                    appLanguage = "en";
+        languageSpinner.setContentDescription(
+                getText(
+                        "অ্যাপের ভাষা নির্বাচন",
+                        "Select app language"
+                )
+        );
 
-                    preferences.edit()
-                            .putString(
-                                    PREF_LANGUAGE,
-                                    "en"
-                            )
-                            .apply();
+        languageSpinner.setOnItemSelectedListener(
+                new AdapterView.OnItemSelectedListener() {
 
-                    recreate();
+                    private boolean firstSelection = true;
+
+                    @Override
+                    public void onItemSelected(
+                            AdapterView<?> parent,
+                            View view,
+                            int position,
+                            long id) {
+
+                        String newLanguage;
+
+                        if (position == 1) {
+                            newLanguage = "en";
+                        } else {
+                            newLanguage = "bn";
+                        }
+
+                        if (newLanguage.equals(
+                                appLanguage)) {
+                            return;
+                        }
+
+                        appLanguage =
+                                newLanguage;
+
+                        preferences.edit()
+                                .putString(
+                                        PREF_LANGUAGE,
+                                        appLanguage
+                                )
+                                .apply();
+
+                        /*
+                         * কোনো Restart message নয়।
+                         * সরাসরি UI refresh হবে।
+                         */
+                        recreate();
+                    }
+
+                    @Override
+                    public void onNothingSelected(
+                            AdapterView<?> parent) {
+                    }
                 }
         );
 
         layout.addView(
-                englishButton
+                languageSpinner
         );
 
         TextView speedLabel =
@@ -1015,9 +1034,7 @@ public class MainActivity extends Activity {
                 10
         );
 
-        layout.addView(
-                speedLabel
-        );
+        layout.addView(speedLabel);
 
         Spinner speedSpinner =
                 new Spinner(this);
@@ -1045,20 +1062,19 @@ public class MainActivity extends Activity {
                 )
         };
 
-        ArrayAdapter<String> adapter =
+        ArrayAdapter<String> speedAdapter =
                 new ArrayAdapter<>(
                         this,
                         android.R.layout.simple_spinner_item,
                         speeds
                 );
 
-        adapter.setDropDownViewResource(
-                android.R.layout
-                        .simple_spinner_dropdown_item
+        speedAdapter.setDropDownViewResource(
+                android.R.layout.simple_spinner_dropdown_item
         );
 
         speedSpinner.setAdapter(
-                adapter
+                speedAdapter
         );
 
         int selected = 1;
@@ -1088,12 +1104,11 @@ public class MainActivity extends Activity {
         );
 
         speedSpinner.setOnItemSelectedListener(
-                new android.widget.AdapterView
-                        .OnItemSelectedListener() {
+                new AdapterView.OnItemSelectedListener() {
 
                     @Override
                     public void onItemSelected(
-                            android.widget.AdapterView<?> parent,
+                            AdapterView<?> parent,
                             View view,
                             int position,
                             long id) {
@@ -1133,7 +1148,7 @@ public class MainActivity extends Activity {
 
                     @Override
                     public void onNothingSelected(
-                            android.widget.AdapterView<?> parent) {
+                            AdapterView<?> parent) {
                     }
                 }
         );
@@ -1295,7 +1310,6 @@ public class MainActivity extends Activity {
         if (tts != null) {
 
             tts.stop();
-
             tts.shutdown();
         }
 
