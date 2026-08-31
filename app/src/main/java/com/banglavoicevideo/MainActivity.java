@@ -42,34 +42,41 @@ public class MainActivity extends Activity {
 
     private SharedPreferences preferences;
 
-    private static final String PREFS = "BanglaVoiceVideoSettings";
-    private static final String PREF_LANGUAGE = "app_language";
-    private static final String PREF_SPEED = "voice_speed";
+    private static final String PREFS =
+            "BanglaVoiceVideoSettings";
+
+    private static final String PREF_LANGUAGE =
+            "app_language";
+
+    private static final String PREF_SPEED =
+            "voice_speed";
 
     private String appLanguage = "bn";
     private float speechRate = 1.0f;
 
-    /*
-     * ছোট অংশে ভাগ করা হচ্ছে।
-     * এতে Pause/Resume করলে অনেক বেশি জায়গা পুনরায় পড়তে হয় না।
-     */
     private static final int WORDS_PER_PART = 8;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        preferences = getSharedPreferences(PREFS, MODE_PRIVATE);
+        preferences =
+                getSharedPreferences(
+                        PREFS,
+                        MODE_PRIVATE
+                );
 
-        appLanguage = preferences.getString(
-                PREF_LANGUAGE,
-                "bn"
-        );
+        appLanguage =
+                preferences.getString(
+                        PREF_LANGUAGE,
+                        "bn"
+                );
 
-        speechRate = preferences.getFloat(
-                PREF_SPEED,
-                1.0f
-        );
+        speechRate =
+                preferences.getFloat(
+                        PREF_SPEED,
+                        1.0f
+                );
 
         createMainInterface();
 
@@ -77,11 +84,13 @@ public class MainActivity extends Activity {
     }
 
     private void initializeTTS() {
+
         tts = new TextToSpeech(
                 this,
                 result -> {
 
-                    if (result == TextToSpeech.SUCCESS) {
+                    if (result ==
+                            TextToSpeech.SUCCESS) {
 
                         ttsReady = true;
 
@@ -94,7 +103,10 @@ public class MainActivity extends Activity {
                         setupTTSListener();
 
                         setStatus(
-                                getText("প্রস্তুত", "Ready")
+                                getText(
+                                        "প্রস্তুত",
+                                        "Ready"
+                                )
                         );
 
                         updateButtons();
@@ -219,10 +231,7 @@ public class MainActivity extends Activity {
                 new TextView(this);
 
         title.setText(
-                getText(
-                        "BanglaVoiceVideo",
-                        "BanglaVoiceVideo"
-                )
+                "BanglaVoiceVideo"
         );
 
         title.setTextSize(26);
@@ -504,10 +513,6 @@ public class MainActivity extends Activity {
 
         if (speaking) {
 
-            /*
-             * বর্তমান ছোট অংশটি বন্ধ করা হচ্ছে।
-             * Resume করলে এই ছোট অংশ থেকেই আবার শুরু হবে।
-             */
             tts.stop();
 
             speaking = false;
@@ -921,7 +926,9 @@ public class MainActivity extends Activity {
                 10
         );
 
-        layout.addView(languageLabel);
+        layout.addView(
+                languageLabel
+        );
 
         Button banglaButton =
                 new Button(this);
@@ -946,11 +953,13 @@ public class MainActivity extends Activity {
                             )
                             .apply();
 
-                    showRestartMessage();
+                    recreate();
                 }
         );
 
-        layout.addView(banglaButton);
+        layout.addView(
+                banglaButton
+        );
 
         Button englishButton =
                 new Button(this);
@@ -975,11 +984,13 @@ public class MainActivity extends Activity {
                             )
                             .apply();
 
-                    showRestartMessage();
+                    recreate();
                 }
         );
 
-        layout.addView(englishButton);
+        layout.addView(
+                englishButton
+        );
 
         TextView speedLabel =
                 new TextView(this);
@@ -1004,7 +1015,9 @@ public class MainActivity extends Activity {
                 10
         );
 
-        layout.addView(speedLabel);
+        layout.addView(
+                speedLabel
+        );
 
         Spinner speedSpinner =
                 new Spinner(this);
@@ -1044,7 +1057,9 @@ public class MainActivity extends Activity {
                         .simple_spinner_dropdown_item
         );
 
-        speedSpinner.setAdapter(adapter);
+        speedSpinner.setAdapter(
+                adapter
+        );
 
         int selected = 1;
 
@@ -1061,7 +1076,9 @@ public class MainActivity extends Activity {
             selected = 2;
         }
 
-        speedSpinner.setSelection(selected);
+        speedSpinner.setSelection(
+                selected
+        );
 
         speedSpinner.setContentDescription(
                 getText(
@@ -1177,11 +1194,11 @@ public class MainActivity extends Activity {
                                 + "করার জন্য এই অ্যাপটি তৈরি করা হচ্ছে।\n\n"
                                 + "দৃষ্টি প্রতিবন্ধী ব্যবহারকারীদের "
                                 + "জন্য অ্যাপটিকে সহজ ও TalkBack "
-                                + "সহায়ক রাখার লক্ষ্য রয়েছে.\n\n"
+                                + "সহায়ক রাখার লক্ষ্য রয়েছে।\n\n"
                                 + "নাম: MD Raju Hossain\n"
                                 + "জেলা: রংপুর\n"
                                 + "WhatsApp: 01744614234\n\n"
-                                + "এই অ্যাপটি ধাপে ধাপে উন্নত করা হবে.",
+                                + "এই অ্যাপটি ধাপে ধাপে উন্নত করা হবে।",
 
                         "BanglaVoiceVideo\n\n"
                                 + "This app is being developed to "
@@ -1241,35 +1258,6 @@ public class MainActivity extends Activity {
                         getText(
                                 "বন্ধ করুন",
                                 "Close"
-                        ),
-                        null
-                )
-                .show();
-    }
-
-    private void showRestartMessage() {
-
-        new android.app.AlertDialog.Builder(
-                this
-        )
-                .setTitle(
-                        getText(
-                                "ভাষা পরিবর্তন",
-                                "Language changed"
-                        )
-                )
-                .setMessage(
-                        getText(
-                                "অ্যাপটি বন্ধ করে আবার খুললে "
-                                        + "নতুন ভাষা পুরোপুরি কার্যকর হবে।",
-                                "Close and reopen the app to "
-                                        + "apply the new language fully."
-                        )
-                )
-                .setPositiveButton(
-                        getText(
-                                "ঠিক আছে",
-                                "OK"
                         ),
                         null
                 )
