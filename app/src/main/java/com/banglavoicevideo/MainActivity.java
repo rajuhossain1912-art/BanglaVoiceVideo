@@ -8,7 +8,6 @@ import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.speech.tts.Voice;
 import android.view.Gravity;
-import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
@@ -18,11 +17,11 @@ import android.widget.Spinner;
 import android.widget.ArrayAdapter;
 import android.widget.TextView;
 import android.content.SharedPreferences;
+import android.view.View;
+import android.provider.MediaStore;
 import android.content.ContentValues;
 import android.net.Uri;
 import android.os.Build;
-import android.provider.MediaStore;
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -35,14 +34,19 @@ import java.util.Locale;
 public class MainActivity extends Activity {
 
     private TextToSpeech tts;
-
     private EditText textInput;
     private TextView statusText;
 
     private Button listenButton;
     private Button pauseButton;
     private Button settingsButton;
-    private Button exportButton;
+    private Button exportAudioButton;
+
+    private boolean exportingAudio = false;
+    private int exportIndex = 0;
+    private List<String> exportParts = new ArrayList<>();
+    private List<File> exportFiles = new ArrayList<>();
+    private File exportDir;
 
     private boolean ttsReady = false;
     private boolean speaking = false;
@@ -53,52 +57,30 @@ public class MainActivity extends Activity {
 
     private SharedPreferences preferences;
 
-    private static final String PREFS =
-            "BanglaVoiceVideoSettings";
-
-    private static final String PREF_LANGUAGE =
-            "app_language";
-
-    private static final String PREF_SPEED =
-            "voice_speed";
+    private static final String PREFS = "BanglaVoiceVideoSettings";
+    private static final String PREF_LANGUAGE = "app_language";
+    private static final String PREF_SPEED = "voice_speed";
 
     private String appLanguage = "bn";
     private float speechRate = 1.0f;
 
-    /* Audio export state */
-    private boolean exporting = false;
-    private int exportIndex = 0;
-
-    private List<String> exportParts =
-            new ArrayList<>();
-
-    private List<File> exportFiles =
-            new ArrayList<>();
-
-    private File exportDirectory;
+    private static final int WORDS_PER_PART = 8;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-
         super.onCreate(savedInstanceState);
 
-        preferences =
-                getSharedPreferences(
-                        PREFS,
-                        MODE_PRIVATE
-                );
+        preferences = getSharedPreferences(PREFS, MODE_PRIVATE);
 
-        appLanguage =
-                preferences.getString(
-                        PREF_LANGUAGE,
-                        "bn"
-                );
+        appLanguage = preferences.getString(
+                PREF_LANGUAGE,
+                "bn"
+        );
 
-        speechRate =
-                preferences.getFloat(
-                        PREF_SPEED,
-                        1.0f
-                );
+        speechRate = preferences.getFloat(
+                PREF_SPEED,
+                1.0f
+        );
 
         createMainInterface();
 
@@ -111,8 +93,7 @@ public class MainActivity extends Activity {
                 this,
                 result -> {
 
-                    if (result ==
-                            TextToSpeech.SUCCESS) {
+                    if (result == TextToSpeech.SUCCESS) {
 
                         ttsReady = true;
 
@@ -125,10 +106,7 @@ public class MainActivity extends Activity {
                         setupTTSListener();
 
                         setStatus(
-                                getText(
-                                        "প্রস্তুত",
-                                        "Ready"
-                                )
+                                getText("প্রস্তুত", "Ready")
                         );
 
                         updateButtons();
@@ -159,12 +137,6 @@ public class MainActivity extends Activity {
 
                         runOnUiThread(() -> {
 
-                            if (utteranceId != null
-                                    && utteranceId.startsWith(
-                                    "export_")) {
-                                return;
-                            }
-
                             speaking = true;
 
                             setStatus(
@@ -184,35 +156,27 @@ public class MainActivity extends Activity {
 
                         runOnUiThread(() -> {
 
-                            /*
-                             * Audio export completion
-                             */
-                            if (utteranceId != null
-                                    && utteranceId.startsWith(
-                                    "export_")) {
+                            if (utteranceId != null &&
+                                    utteranceId.startsWith("export_")) {
 
-                                if (!exporting) {
+                                if (!exportingAudio) {
                                     return;
                                 }
 
                                 exportIndex++;
 
-                                if (exportIndex >=
-                                        exportParts.size()) {
+                                if (exportIndex < exportParts.size()) {
 
-                                    finishAudioExport();
+                                    synthesizeNextExportPart();
 
                                 } else {
 
-                                    synthesizeNextExportPart();
+                                    mergeAndSaveExportedAudio();
                                 }
 
                                 return;
                             }
 
-                            /*
-                             * Normal reading
-                             */
                             if (paused) {
                                 return;
                             }
@@ -248,9 +212,8 @@ public class MainActivity extends Activity {
 
                         runOnUiThread(() -> {
 
-                            if (utteranceId != null
-                                    && utteranceId.startsWith(
-                                    "export_")) {
+                            if (utteranceId != null &&
+                                    utteranceId.startsWith("export_")) {
 
                                 failAudioExport(
                                         getText(
@@ -302,7 +265,10 @@ public class MainActivity extends Activity {
                 new TextView(this);
 
         title.setText(
-                "BanglaVoiceVideo"
+                getText(
+                        "BanglaVoiceVideo",
+                        "BanglaVoiceVideo"
+                )
         );
 
         title.setTextSize(26);
@@ -339,10 +305,10 @@ public class MainActivity extends Activity {
                 )
         );
 
-        ScrollView scroll =
+        ScrollView textScroll =
                 new ScrollView(this);
 
-        scroll.setFillViewport(true);
+        textScroll.setFillViewport(true);
 
         textInput =
                 new EditText(this);
@@ -392,7 +358,7 @@ public class MainActivity extends Activity {
                 )
         );
 
-        scroll.addView(
+        textScroll.addView(
                 textInput,
                 new ScrollView.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -401,7 +367,7 @@ public class MainActivity extends Activity {
         );
 
         root.addView(
-                scroll,
+                textScroll,
                 new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         0,
@@ -482,29 +448,29 @@ public class MainActivity extends Activity {
                 )
         );
 
-        exportButton =
+        exportAudioButton =
                 new Button(this);
 
-        exportButton.setText(
+        exportAudioButton.setText(
                 getText(
                         "অডিও এক্সপোর্ট",
                         "Export Audio"
                 )
         );
 
-        exportButton.setContentDescription(
+        exportAudioButton.setContentDescription(
                 getText(
                         "সম্পূর্ণ লেখা অডিও ফাইলে সংরক্ষণ করুন",
                         "Save the complete text as an audio file"
                 )
         );
 
-        exportButton.setOnClickListener(
+        exportAudioButton.setOnClickListener(
                 v -> exportAudio()
         );
 
         root.addView(
-                exportButton,
+                exportAudioButton,
                 new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT
@@ -590,10 +556,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        try {
-            tts.stop();
-        } catch (Exception ignored) {
-        }
+        tts.stop();
 
         speechParts.clear();
 
@@ -616,10 +579,7 @@ public class MainActivity extends Activity {
 
         if (speaking) {
 
-            try {
-                tts.stop();
-            } catch (Exception ignored) {
-            }
+            tts.stop();
 
             speaking = false;
             paused = true;
@@ -681,167 +641,69 @@ public class MainActivity extends Activity {
 
         chooseLanguage(part);
 
-        try {
+        String id =
+                "part_" + currentPart;
 
-            tts.speak(
-                    part,
-                    TextToSpeech.QUEUE_FLUSH,
-                    null,
-                    "part_" + currentPart
-            );
+        tts.speak(
+                part,
+                TextToSpeech.QUEUE_FLUSH,
+                null,
+                id
+        );
 
-            speaking = true;
+        speaking = true;
 
-            updateButtons();
-
-        } catch (Exception e) {
-
-            speaking = false;
-
-            setStatus(
-                    getText(
-                            "ভয়েস চালু করা যায়নি",
-                            "Could not start voice"
-                    )
-            );
-
-            updateButtons();
-        }
+        updateButtons();
     }
 
-    /*
-     * Normal reading:
-     * sentence punctuation is preferred instead of
-     * cutting every 8 words.
-     */
     private List<String> splitText(
             String text) {
 
-        ArrayList<String> result =
-                new ArrayList<>();
-
-        String normalized =
-                text.replace(
-                        '\n',
-                        ' '
-                ).replace(
-                        '\r',
-                        ' '
-                ).replaceAll(
-                        "\\s+",
-                        " "
-                ).trim();
-
-        if (normalized.isEmpty()) {
-            return result;
-        }
-
-        String[] sentences =
-                normalized.split(
-                        "(?<=[।|,.?!?])\\s+"
-                );
-
-        StringBuilder current =
-                new StringBuilder();
-
-        for (String sentence :
-                sentences) {
-
-            sentence =
-                    sentence.trim();
-
-            if (sentence.isEmpty()) {
-                continue;
-            }
-
-            if (current.length() == 0) {
-
-                current.append(
-                        sentence
-                );
-
-            } else if (
-                    current.length()
-                            + sentence.length()
-                            + 1 <= 3000) {
-
-                current.append(" ")
-                        .append(sentence);
-
-            } else {
-
-                result.addAll(
-                        splitLongText(
-                                current.toString(),
-                                3000
-                        )
-                );
-
-                current.setLength(0);
-
-                current.append(sentence);
-            }
-        }
-
-        if (current.length() > 0) {
-
-            result.addAll(
-                    splitLongText(
-                            current.toString(),
-                            3000
-                    )
-            );
-        }
-
-        return result;
-    }
-
-    private List<String> splitLongText(
-            String text,
-            int maxChars) {
-
-        ArrayList<String> result =
+        List<String> result =
                 new ArrayList<>();
 
         String[] words =
                 text.split("\\s+");
 
-        StringBuilder current =
+        StringBuilder part =
                 new StringBuilder();
 
-        for (String word :
-                words) {
+        int count = 0;
+
+        for (String word : words) {
 
             if (word.isEmpty()) {
                 continue;
             }
 
-            if (current.length() > 0
-                    && current.length()
-                    + word.length()
-                    + 1 > maxChars) {
+            if (count >=
+                    WORDS_PER_PART) {
 
-                result.add(
-                        current.toString()
-                                .trim()
-                );
+                String completed =
+                        part.toString().trim();
 
-                current.setLength(0);
+                if (!completed.isEmpty()) {
+                    result.add(completed);
+                }
+
+                part.setLength(0);
+                count = 0;
             }
 
-            if (current.length() > 0) {
-                current.append(" ");
+            if (part.length() > 0) {
+                part.append(" ");
             }
 
-            current.append(word);
+            part.append(word);
+
+            count++;
         }
 
-        if (current.length() > 0) {
+        String last =
+                part.toString().trim();
 
-            result.add(
-                    current.toString()
-                            .trim()
-            );
+        if (!last.isEmpty()) {
+            result.add(last);
         }
 
         return result;
@@ -974,8 +836,8 @@ public class MainActivity extends Activity {
             char c =
                     text.charAt(i);
 
-            if (c >= '\u0980'
-                    && c <= '\u09FF') {
+            if (c >= '\u0980' &&
+                    c <= '\u09FF') {
 
                 return true;
             }
@@ -994,9 +856,10 @@ public class MainActivity extends Activity {
             char c =
                     text.charAt(i);
 
-            if ((c >= 'A' && c <= 'Z')
-                    || (c >= 'a'
-                    && c <= 'z')) {
+            if ((c >= 'A' &&
+                    c <= 'Z') ||
+                    (c >= 'a' &&
+                    c <= 'z')) {
 
                 return true;
             }
@@ -1005,11 +868,89 @@ public class MainActivity extends Activity {
         return false;
     }
 
-    /*
-     * ============================
-     * COMPLETE AUDIO EXPORT
-     * ============================
-     */
+    private void updateButtons() {
+
+        if (listenButton == null ||
+                pauseButton == null) {
+            return;
+        }
+
+        if (exportAudioButton != null) {
+
+            exportAudioButton.setText(
+                    exportingAudio
+                            ? getText(
+                                    "অডিও তৈরি হচ্ছে...",
+                                    "Creating audio..."
+                            )
+                            : getText(
+                                    "অডিও এক্সপোর্ট",
+                                    "Export Audio"
+                            )
+            );
+
+            exportAudioButton.setEnabled(
+                    ttsReady &&
+                            !exportingAudio
+            );
+        }
+
+        listenButton.setText(
+                getText(
+                        "লেখা শুনুন",
+                        "Listen"
+                )
+        );
+
+        if (speaking) {
+
+            pauseButton.setText(
+                    getText(
+                            "ভয়েস বন্ধ করুন",
+                            "Pause Voice"
+                    )
+            );
+
+            pauseButton.setContentDescription(
+                    getText(
+                            "ভয়েস বন্ধ করুন",
+                            "Pause Voice"
+                    )
+            );
+
+        } else if (paused) {
+
+            pauseButton.setText(
+                    getText(
+                            "ভয়েস চালু করুন",
+                            "Resume Voice"
+                    )
+            );
+
+            pauseButton.setContentDescription(
+                    getText(
+                            "ভয়েস চালু করুন",
+                            "Resume Voice"
+                    )
+            );
+
+        } else {
+
+            pauseButton.setText(
+                    getText(
+                            "ভয়েস বন্ধ করুন",
+                            "Pause Voice"
+                    )
+            );
+
+            pauseButton.setContentDescription(
+                    getText(
+                            "ভয়েস বন্ধ করুন",
+                            "Pause Voice"
+                    )
+            );
+        }
+    }
 
     private void exportAudio() {
 
@@ -1025,15 +966,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        if (exporting) {
-
-            setStatus(
-                    getText(
-                            "অডিও তৈরি হচ্ছে, অপেক্ষা করুন",
-                            "Audio export is already running"
-                    )
-            );
-
+        if (exportingAudio) {
             return;
         }
 
@@ -1055,26 +988,18 @@ public class MainActivity extends Activity {
             return;
         }
 
-        exportParts =
-                splitText(text);
+        exportParts.clear();
+
+        exportParts.addAll(
+                splitForAudioExport(text)
+        );
 
         if (exportParts.isEmpty()) {
-            return;
-        }
-
-        exportDirectory =
-                new File(
-                        getCacheDir(),
-                        "BanglaVoiceVideoExport_"
-                                + System.currentTimeMillis()
-                );
-
-        if (!exportDirectory.mkdirs()) {
 
             setStatus(
                     getText(
-                            "অডিও তৈরির স্থান তৈরি করা যায়নি",
-                            "Could not create export folder"
+                            "অডিও তৈরির মতো লেখা পাওয়া যায়নি",
+                            "No text available for audio export"
                     )
             );
 
@@ -1084,12 +1009,36 @@ public class MainActivity extends Activity {
         exportFiles.clear();
 
         exportIndex = 0;
-        exporting = true;
+
+        exportingAudio = true;
+
+        exportDir =
+                new File(
+                        getCacheDir(),
+                        "BanglaVoiceVideoExport_"
+                                + System.currentTimeMillis()
+                );
+
+        if (!exportDir.mkdirs()) {
+
+            exportingAudio = false;
+
+            setStatus(
+                    getText(
+                            "অডিও তৈরির স্থান তৈরি করা যায়নি",
+                            "Could not create temporary audio folder"
+                    )
+            );
+
+            updateButtons();
+
+            return;
+        }
 
         setStatus(
                 getText(
-                        "সম্পূর্ণ অডিও তৈরি হচ্ছে...",
-                        "Creating complete audio..."
+                        "অডিও তৈরি হচ্ছে...",
+                        "Creating audio..."
                 )
         );
 
@@ -1098,16 +1047,137 @@ public class MainActivity extends Activity {
         synthesizeNextExportPart();
     }
 
-    private void synthesizeNextExportPart() {
+    private List<String> splitForAudioExport(
+            String text) {
 
-        if (!exporting) {
-            return;
+        ArrayList<String> result =
+                new ArrayList<>();
+
+        String normalized =
+                text
+                        .replace('\n', ' ')
+                        .replace('\r', ' ')
+                        .replaceAll(
+                                "\\s+",
+                                " "
+                        )
+                        .trim();
+
+        if (normalized.isEmpty()) {
+            return result;
         }
 
-        if (exportIndex >=
-                exportParts.size()) {
+        String[] sentences =
+                normalized.split(
+                        "(?<=[।|,?.!])\\s+"
+                );
 
-            finishAudioExport();
+        StringBuilder current =
+                new StringBuilder();
+
+        for (String sentence :
+                sentences) {
+
+            sentence =
+                    sentence.trim();
+
+            if (sentence.isEmpty()) {
+                continue;
+            }
+
+            if (current.length() == 0) {
+
+                current.append(sentence);
+
+            } else if (
+                    current.length()
+                            + 1
+                            + sentence.length()
+                            <= 3500) {
+
+                current.append(' ')
+                        .append(sentence);
+
+            } else {
+
+                addLongExportText(
+                        result,
+                        current.toString(),
+                        3500
+                );
+
+                current.setLength(0);
+
+                current.append(sentence);
+            }
+        }
+
+        if (current.length() > 0) {
+
+            addLongExportText(
+                    result,
+                    current.toString(),
+                    3500
+            );
+        }
+
+        return result;
+    }
+
+    private void addLongExportText(
+            List<String> result,
+            String text,
+            int maxChars) {
+
+        String[] words =
+                text.trim()
+                        .split("\\s+");
+
+        StringBuilder current =
+                new StringBuilder();
+
+        for (String word :
+                words) {
+
+            if (word.isEmpty()) {
+                continue;
+            }
+
+            if (current.length() > 0 &&
+                    current.length()
+                            + 1
+                            + word.length()
+                            > maxChars) {
+
+                result.add(
+                        current.toString()
+                                .trim()
+                );
+
+                current.setLength(0);
+            }
+
+            if (current.length() > 0) {
+                current.append(' ');
+            }
+
+            current.append(word);
+        }
+
+        if (current.length() > 0) {
+
+            result.add(
+                    current.toString()
+                            .trim()
+            );
+        }
+    }
+
+    private void synthesizeNextExportPart() {
+
+        if (!exportingAudio ||
+                exportIndex >=
+                        exportParts.size()) {
 
             return;
         }
@@ -1117,18 +1187,9 @@ public class MainActivity extends Activity {
                         .get(exportIndex)
                         .trim();
 
-        if (part.isEmpty()) {
-
-            exportIndex++;
-
-            synthesizeNextExportPart();
-
-            return;
-        }
-
-        File output =
+        File file =
                 new File(
-                        exportDirectory,
+                        exportDir,
                         "part_"
                                 + exportIndex
                                 + ".wav"
@@ -1142,7 +1203,7 @@ public class MainActivity extends Activity {
                     tts.synthesizeToFile(
                             part,
                             new Bundle(),
-                            output,
+                            file,
                             "export_"
                                     + exportIndex
                     );
@@ -1160,7 +1221,7 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            exportFiles.add(output);
+            exportFiles.add(file);
 
         } catch (Exception e) {
 
@@ -1173,47 +1234,41 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void finishAudioExport() {
+    private void mergeAndSaveExportedAudio() {
 
-        if (!exporting) {
+        if (!exportingAudio ||
+                exportFiles.isEmpty()) {
+
+            failAudioExport(
+                    getText(
+                            "কোনো অডিও অংশ তৈরি হয়নি",
+                            "No audio parts were created"
+                    )
+            );
+
             return;
         }
 
-        try {
-
-            if (exportFiles.isEmpty()) {
-
-                failAudioExport(
-                        getText(
-                                "কোনো অডিও তৈরি হয়নি",
-                                "No audio was created"
-                        )
+        File merged =
+                new File(
+                        exportDir,
+                        "complete.wav"
                 );
 
-                return;
-            }
-
-            String name =
-                    createAudioName(
-                            textInput
-                                    .getText()
-                                    .toString()
-                    );
-
-            File merged =
-                    new File(
-                            exportDirectory,
-                            name + ".wav"
-                    );
+        try {
 
             mergeWavFiles(
                     exportFiles,
                     merged
             );
 
-            saveAudio(
+            saveExportedAudio(
                     merged,
-                    name
+                    createAudioFileName(
+                            textInput
+                                    .getText()
+                                    .toString()
+                    )
             );
 
         } catch (Exception e) {
@@ -1221,68 +1276,10 @@ public class MainActivity extends Activity {
             failAudioExport(
                     getText(
                             "অডিও ফাইল তৈরি করা যায়নি",
-                            "Could not create audio file"
+                            "Could not create the audio file"
                     )
             );
         }
-    }
-
-    private String createAudioName(
-            String text) {
-
-        String clean =
-                text.replaceAll(
-                        "\\s+",
-                        " "
-                ).trim();
-
-        if (clean.isEmpty()) {
-
-            return "BanglaVoiceVideo_Audio";
-        }
-
-        String[] words =
-                clean.split(" ");
-
-        StringBuilder name =
-                new StringBuilder();
-
-        for (String word :
-                words) {
-
-            String safe =
-                    word.replaceAll(
-                            "[\\\\/:*?\"<>|\\p{Cntrl}]",
-                            ""
-                    );
-
-            if (safe.isEmpty()) {
-                continue;
-            }
-
-            if (name.length() > 0) {
-                name.append("_");
-            }
-
-            name.append(safe);
-
-            if (name.length() >= 45) {
-                break;
-            }
-        }
-
-        if (name.length() == 0) {
-
-            return "BanglaVoiceVideo_Audio";
-        }
-
-        return name.substring(
-                0,
-                Math.min(
-                        name.length(),
-                        50
-                )
-        );
     }
 
     private void mergeWavFiles(
@@ -1290,41 +1287,31 @@ public class MainActivity extends Activity {
             File output)
             throws IOException {
 
-        if (files == null
-                || files.isEmpty()) {
-
-            throw new IOException(
-                    "No WAV files"
-            );
-        }
+        FileInputStream first =
+                new FileInputStream(
+                        files.get(0)
+                );
 
         byte[] header =
                 new byte[44];
 
-        try (FileInputStream in =
-                     new FileInputStream(
-                             files.get(0)
-                     )) {
+        int read =
+                first.read(header);
 
-            if (in.read(header) != 44) {
+        first.close();
 
-                throw new IOException(
-                        "Invalid WAV"
-                );
-            }
-        }
-
-        if (header[0] != 'R'
-                || header[1] != 'I'
-                || header[2] != 'F'
-                || header[3] != 'F'
-                || header[8] != 'W'
-                || header[9] != 'A'
-                || header[10] != 'V'
-                || header[11] != 'E') {
+        if (read < 44 ||
+                header[0] != 'R' ||
+                header[1] != 'I' ||
+                header[2] != 'F' ||
+                header[3] != 'F' ||
+                header[8] != 'W' ||
+                header[9] != 'A' ||
+                header[10] != 'V' ||
+                header[11] != 'E') {
 
             throw new IOException(
-                    "Invalid WAV header"
+                    "Invalid WAV file"
             );
         }
 
@@ -1348,9 +1335,10 @@ public class MainActivity extends Activity {
 
         long dataLength = 0;
 
-        for (File file : files) {
+        for (File f :
+                files) {
 
-            if (file.length() < 44) {
+            if (f.length() < 44) {
 
                 throw new IOException(
                         "Invalid WAV part"
@@ -1358,13 +1346,15 @@ public class MainActivity extends Activity {
             }
 
             dataLength +=
-                    file.length() - 44;
+                    f.length() - 44;
         }
 
-        try (FileOutputStream out =
-                     new FileOutputStream(
-                             output
-                     )) {
+        FileOutputStream out =
+                new FileOutputStream(
+                        output
+                );
+
+        try {
 
             writeWavHeader(
                     out,
@@ -1377,12 +1367,13 @@ public class MainActivity extends Activity {
             byte[] buffer =
                     new byte[8192];
 
-            for (File file : files) {
+            for (File f :
+                    files) {
 
-                try (FileInputStream in =
-                             new FileInputStream(
-                                     file
-                             )) {
+                FileInputStream in =
+                        new FileInputStream(f);
+
+                try {
 
                     long skipped = 0;
 
@@ -1400,20 +1391,30 @@ public class MainActivity extends Activity {
                         skipped += n;
                     }
 
-                    int count;
+                    int n;
 
-                    while ((count =
+                    while ((n =
                             in.read(buffer))
                             != -1) {
 
                         out.write(
                                 buffer,
                                 0,
-                                count
+                                n
                         );
                     }
+
+                } finally {
+
+                    in.close();
                 }
             }
+
+            out.flush();
+
+        } finally {
+
+            out.close();
         }
     }
 
@@ -1421,22 +1422,54 @@ public class MainActivity extends Activity {
             byte[] data,
             int offset) {
 
-        return (data[offset] & 0xff)
-                | ((data[offset + 1]
-                & 0xff) << 8)
-                | ((data[offset + 2]
-                & 0xff) << 16)
-                | ((data[offset + 3]
-                & 0xff) << 24);
+        return (data[offset] & 0xff) |
+                ((data[offset + 1] & 0xff) << 8) |
+                ((data[offset + 2] & 0xff) << 16) |
+                ((data[offset + 3] & 0xff) << 24);
     }
 
     private int readShortLE(
             byte[] data,
             int offset) {
 
-        return (data[offset] & 0xff)
-                | ((data[offset + 1]
-                & 0xff) << 8);
+        return (data[offset] & 0xff) |
+                ((data[offset + 1] & 0xff) << 8);
+    }
+
+    private void writeIntLE(
+            FileOutputStream out,
+            int value)
+            throws IOException {
+
+        out.write(
+                value & 0xff
+        );
+
+        out.write(
+                (value >> 8) & 0xff
+        );
+
+        out.write(
+                (value >> 16) & 0xff
+        );
+
+        out.write(
+                (value >> 24) & 0xff
+        );
+    }
+
+    private void writeShortLE(
+            FileOutputStream out,
+            int value)
+            throws IOException {
+
+        out.write(
+                value & 0xff
+        );
+
+        out.write(
+                (value >> 8) & 0xff
+        );
     }
 
     private void writeWavHeader(
@@ -1444,18 +1477,18 @@ public class MainActivity extends Activity {
             long dataLength,
             int sampleRate,
             int channels,
-            int bits)
+            int bitsPerSample)
             throws IOException {
 
         int byteRate =
                 sampleRate
                         * channels
-                        * bits
+                        * bitsPerSample
                         / 8;
 
         int blockAlign =
                 channels
-                        * bits
+                        * bitsPerSample
                         / 8;
 
         out.write(
@@ -1471,7 +1504,12 @@ public class MainActivity extends Activity {
 
         out.write(
                 new byte[]{
-                        'W','A','V','E',
+                        'W','A','V','E'
+                }
+        );
+
+        out.write(
+                new byte[]{
                         'f','m','t',' '
                 }
         );
@@ -1508,7 +1546,7 @@ public class MainActivity extends Activity {
 
         writeShortLE(
                 out,
-                bits
+                bitsPerSample
         );
 
         out.write(
@@ -1523,56 +1561,82 @@ public class MainActivity extends Activity {
         );
     }
 
-    private void writeIntLE(
-            FileOutputStream out,
-            int value)
-            throws IOException {
+    private String createAudioFileName(
+            String text) {
 
-        out.write(
-                value & 0xff
-        );
+        String cleaned =
+                text
+                        .replaceAll(
+                                "\\s+",
+                                " "
+                        )
+                        .trim();
 
-        out.write(
-                (value >> 8)
-                        & 0xff
-        );
+        if (cleaned.isEmpty()) {
 
-        out.write(
-                (value >> 16)
-                        & 0xff
-        );
+            return "BanglaVoiceVideo_Audio";
+        }
 
-        out.write(
-                (value >> 24)
-                        & 0xff
-        );
+        String[] words =
+                cleaned.split(" ");
+
+        StringBuilder name =
+                new StringBuilder();
+
+        for (String word :
+                words) {
+
+            String safe =
+                    word.replaceAll(
+                            "[\\\\/:*?\"<>|\\p{Cntrl}]",
+                            ""
+                    );
+
+            if (safe.isEmpty()) {
+                continue;
+            }
+
+            if (name.length() > 0) {
+                name.append("_");
+            }
+
+            name.append(safe);
+
+            if (name.length() >= 45) {
+                break;
+            }
+        }
+
+        if (name.length() == 0) {
+
+            return "BanglaVoiceVideo_Audio";
+        }
+
+        String result =
+                name.toString();
+
+        if (result.length() > 45) {
+
+            result =
+                    result.substring(
+                            0,
+                            45
+                    );
+        }
+
+        return result;
     }
 
-    private void writeShortLE(
-            FileOutputStream out,
-            int value)
-            throws IOException {
-
-        out.write(
-                value & 0xff
-        );
-
-        out.write(
-                (value >> 8)
-                        & 0xff
-        );
-    }
-
-    private void saveAudio(
-            File source,
-            String displayName) {
+    private void saveExportedAudio(
+            File file,
+            String name) {
 
         new Thread(() -> {
 
             try {
 
-                if (Build.VERSION.SDK_INT
-                        >= Build.VERSION_CODES.Q) {
+                if (Build.VERSION.SDK_INT >=
+                        Build.VERSION_CODES.Q) {
 
                     ContentValues values =
                             new ContentValues();
@@ -1580,8 +1644,7 @@ public class MainActivity extends Activity {
                     values.put(
                             MediaStore.Audio.Media
                                     .DISPLAY_NAME,
-                            displayName
-                                    + ".wav"
+                            name + ".wav"
                     );
 
                     values.put(
@@ -1620,7 +1683,7 @@ public class MainActivity extends Activity {
                     try (
                             FileInputStream in =
                                     new FileInputStream(
-                                            source
+                                            file
                                     );
 
                             java.io.OutputStream out =
@@ -1633,31 +1696,31 @@ public class MainActivity extends Activity {
                         if (out == null) {
 
                             throw new IOException(
-                                    "Output unavailable"
+                                    "Output stream unavailable"
                             );
                         }
 
                         byte[] buffer =
                                 new byte[8192];
 
-                        int count;
+                        int n;
 
-                        while ((count =
+                        while ((n =
                                 in.read(buffer))
                                 != -1) {
 
                             out.write(
                                     buffer,
                                     0,
-                                    count
+                                    n
                             );
                         }
                     }
 
-                    ContentValues done =
+                    ContentValues ready =
                             new ContentValues();
 
-                    done.put(
+                    ready.put(
                             MediaStore.Audio.Media
                                     .IS_PENDING,
                             0
@@ -1666,52 +1729,26 @@ public class MainActivity extends Activity {
                     getContentResolver()
                             .update(
                                     uri,
-                                    done,
+                                    ready,
                                     null,
                                     null
                             );
 
                 } else {
 
-                    File music =
-                            android.os.Environment
-                                    .getExternalStoragePublicDirectory(
-                                            android.os.Environment
-                                                    .DIRECTORY_MUSIC
-                                    );
-
-                    File folder =
-                            new File(
-                                    music,
-                                    "BanglaVoiceVideo"
-                            );
-
-                    if (!folder.exists()
-                            && !folder.mkdirs()) {
-
-                        throw new IOException(
-                                "Could not create folder"
-                        );
-                    }
-
-                    copyFile(
-                            source,
-                            new File(
-                                    folder,
-                                    displayName
-                                            + ".wav"
-                            )
+                    throw new IOException(
+                            "Audio export requires Android 10 or newer"
                     );
                 }
 
                 runOnUiThread(() -> {
 
-                    exporting = false;
+                    exportingAudio = false;
 
                     setStatus(
                             getText(
-                                    "অডিও সফলভাবে সংরক্ষণ হয়েছে",
-                                    "Audio saved successfully"
+                                    "অডিও সংরক্ষণ হয়েছে: Music/BanglaVoiceVideo",
+                                    "Audio saved: Music/BanglaVoiceVideo"
                             )
                     );
 
@@ -1726,7 +1763,7 @@ public class MainActivity extends Activity {
                         failAudioExport(
                                 getText(
                                         "অডিও সংরক্ষণ করা যায়নি",
-                                        "Could not save audio"
+                                        "Could not save the audio file"
                                 )
                         )
                 );
@@ -1735,45 +1772,10 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private void copyFile(
-            File source,
-            File destination)
-            throws IOException {
-
-        try (
-                FileInputStream in =
-                        new FileInputStream(
-                                source
-                        );
-
-                FileOutputStream out =
-                        new FileOutputStream(
-                                destination
-                        )
-        ) {
-
-            byte[] buffer =
-                    new byte[8192];
-
-            int count;
-
-            while ((count =
-                    in.read(buffer))
-                    != -1) {
-
-                out.write(
-                        buffer,
-                        0,
-                        count
-                );
-            }
-        }
-    }
-
     private void failAudioExport(
             String message) {
 
-        exporting = false;
+        exportingAudio = false;
 
         setStatus(message);
 
@@ -1786,32 +1788,32 @@ public class MainActivity extends Activity {
 
         try {
 
-            if (exportDirectory != null
-                    && exportDirectory.exists()) {
+            if (exportDir != null &&
+                    exportDir.exists()) {
 
                 File[] files =
-                        exportDirectory
-                                .listFiles();
+                        exportDir.listFiles();
 
                 if (files != null) {
 
-                    for (File file :
+                    for (File f :
                             files) {
 
                         try {
-                            file.delete();
+                            f.delete();
                         } catch (Exception ignored) {
                         }
                     }
                 }
 
-                exportDirectory.delete();
+                exportDir.delete();
             }
 
         } catch (Exception ignored) {
         }
 
         exportFiles.clear();
+        exportParts.clear();
     }
 
     private void showSettings() {
@@ -1878,96 +1880,66 @@ public class MainActivity extends Activity {
 
         layout.addView(languageLabel);
 
-        String[] languages = {
-                "বাংলা",
-                "English"
-        };
+        Button banglaButton =
+                new Button(this);
 
-        Spinner languageSpinner =
-                new Spinner(this);
-
-        ArrayAdapter<String>
-                languageAdapter =
-                new ArrayAdapter<>(
-                        this,
-                        android.R.layout
-                                .simple_spinner_item,
-                        languages
-                );
-
-        languageAdapter
-                .setDropDownViewResource(
-                        android.R.layout
-                                .simple_spinner_dropdown_item
-                );
-
-        languageSpinner
-                .setAdapter(
-                        languageAdapter
-                );
-
-        languageSpinner.setSelection(
-                "en".equals(appLanguage)
-                        ? 1
-                        : 0
+        banglaButton.setText(
+                "বাংলা"
         );
 
-        languageSpinner.setContentDescription(
-                getText(
-                        "অ্যাপের ভাষা নির্বাচন করুন",
-                        "Select app language"
-                )
+        banglaButton.setContentDescription(
+                "অ্যাপের ভাষা বাংলা"
         );
 
-        languageSpinner
-                .setOnItemSelectedListener(
-                        new android.widget
-                                .AdapterView
-                                .OnItemSelectedListener() {
+        banglaButton.setOnClickListener(
+                v -> {
 
-                            @Override
-                            public void onItemSelected(
-                                    android.widget
-                                            .AdapterView<?> parent,
-                                    View view,
-                                    int position,
-                                    long id) {
+                    appLanguage = "bn";
 
-                                String newLanguage =
-                                        position == 0
-                                                ? "bn"
-                                                : "en";
+                    preferences.edit()
+                            .putString(
+                                    PREF_LANGUAGE,
+                                    "bn"
+                            )
+                            .apply();
 
-                                if (!newLanguage
-                                        .equals(
-                                                appLanguage
-                                        )) {
-
-                                    appLanguage =
-                                            newLanguage;
-
-                                    preferences
-                                            .edit()
-                                            .putString(
-                                                    PREF_LANGUAGE,
-                                                    appLanguage
-                                            )
-                                            .apply();
-
-                                    recreate();
-                                }
-                            }
-
-                            @Override
-                            public void onNothingSelected(
-                                    android.widget
-                                            .AdapterView<?> parent) {
-                            }
-                        }
-                );
+                    recreate();
+                }
+        );
 
         layout.addView(
-                languageSpinner
+                banglaButton
+        );
+
+        Button englishButton =
+                new Button(this);
+
+        englishButton.setText(
+                "English"
+        );
+
+        englishButton.setContentDescription(
+                "App language English"
+        );
+
+        englishButton.setOnClickListener(
+                v -> {
+
+                    appLanguage = "en";
+
+                    preferences.edit()
+                            .putString(
+                                    PREF_LANGUAGE,
+                                    "en"
+                            )
+                            .apply();
+
+                    recreate();
+                }
+        );
+
+        layout.addView(
+                englishButton
         );
 
         TextView speedLabel =
@@ -1995,18 +1967,33 @@ public class MainActivity extends Activity {
 
         layout.addView(speedLabel);
 
-        String[] speeds = {
-                getText("ধীর", "Slow"),
-                getText("স্বাভাবিক", "Normal"),
-                getText("দ্রুত", "Fast"),
-                getText("খুব দ্রুত", "Very Fast")
-        };
-
         Spinner speedSpinner =
                 new Spinner(this);
 
-        ArrayAdapter<String>
-                speedAdapter =
+        String[] speeds = {
+
+                getText(
+                        "ধীর",
+                        "Slow"
+                ),
+
+                getText(
+                        "স্বাভাবিক",
+                        "Normal"
+                ),
+
+                getText(
+                        "দ্রুত",
+                        "Fast"
+                ),
+
+                getText(
+                        "খুব দ্রুত",
+                        "Very Fast"
+                )
+        };
+
+        ArrayAdapter<String> adapter =
                 new ArrayAdapter<>(
                         this,
                         android.R.layout
@@ -2014,23 +2001,27 @@ public class MainActivity extends Activity {
                         speeds
                 );
 
-        speedAdapter
-                .setDropDownViewResource(
-                        android.R.layout
-                                .simple_spinner_dropdown_item
-                );
+        adapter.setDropDownViewResource(
+                android.R.layout
+                        .simple_spinner_dropdown_item
+        );
 
         speedSpinner.setAdapter(
-                speedAdapter
+                adapter
         );
 
         int selected = 1;
 
         if (speechRate <= 0.85f) {
+
             selected = 0;
+
         } else if (speechRate >= 1.25f) {
+
             selected = 3;
+
         } else if (speechRate >= 1.10f) {
+
             selected = 2;
         }
 
@@ -2040,61 +2031,61 @@ public class MainActivity extends Activity {
 
         speedSpinner.setContentDescription(
                 getText(
-                        "ভয়েসের গতি নির্বাচন করুন",
+                        "ভয়েসের গতি নির্বাচন",
                         "Select voice speed"
                 )
         );
 
-        speedSpinner
-                .setOnItemSelectedListener(
-                        new android.widget
-                                .AdapterView
-                                .OnItemSelectedListener() {
+        speedSpinner.setOnItemSelectedListener(
+                new android.widget.AdapterView
+                        .OnItemSelectedListener() {
 
-                            @Override
-                            public void onItemSelected(
-                                    android.widget
-                                            .AdapterView<?> parent,
-                                    View view,
-                                    int position,
-                                    long id) {
+                    @Override
+                    public void onItemSelected(
+                            android.widget.AdapterView<?> parent,
+                            View view,
+                            int position,
+                            long id) {
 
-                                if (position == 0) {
-                                    speechRate = 0.85f;
-                                } else if (
-                                        position == 1) {
-                                    speechRate = 1.0f;
-                                } else if (
-                                        position == 2) {
-                                    speechRate = 1.15f;
-                                } else {
-                                    speechRate = 1.30f;
-                                }
+                        if (position == 0) {
 
-                                preferences
-                                        .edit()
-                                        .putFloat(
-                                                PREF_SPEED,
-                                                speechRate
-                                        )
-                                        .apply();
+                            speechRate = 0.85f;
 
-                                if (tts != null
-                                        && ttsReady) {
+                        } else if (position == 1) {
 
-                                    tts.setSpeechRate(
-                                            speechRate
-                                    );
-                                }
-                            }
+                            speechRate = 1.0f;
 
-                            @Override
-                            public void onNothingSelected(
-                                    android.widget
-                                            .AdapterView<?> parent) {
-                            }
+                        } else if (position == 2) {
+
+                            speechRate = 1.15f;
+
+                        } else {
+
+                            speechRate = 1.30f;
                         }
-                );
+
+                        preferences.edit()
+                                .putFloat(
+                                        PREF_SPEED,
+                                        speechRate
+                                )
+                                .apply();
+
+                        if (tts != null &&
+                                ttsReady) {
+
+                            tts.setSpeechRate(
+                                    speechRate
+                            );
+                        }
+                    }
+
+                    @Override
+                    public void onNothingSelected(
+                            android.widget.AdapterView<?> parent) {
+                    }
+                }
+        );
 
         layout.addView(
                 speedSpinner
@@ -2125,18 +2116,21 @@ public class MainActivity extends Activity {
                 aboutButton
         );
 
-        new android.app.AlertDialog.Builder(
-                this
-        )
-                .setView(layout)
-                .setPositiveButton(
-                        getText(
-                                "বন্ধ করুন",
-                                "Close"
-                        ),
-                        null
+        android.app.AlertDialog dialog =
+                new android.app.AlertDialog.Builder(
+                        this
                 )
-                .show();
+                        .setView(layout)
+                        .setPositiveButton(
+                                getText(
+                                        "বন্ধ করুন",
+                                        "Close"
+                                ),
+                                null
+                        )
+                        .create();
+
+        dialog.show();
     }
 
     private void showAbout() {
@@ -2145,14 +2139,26 @@ public class MainActivity extends Activity {
                 getText(
                         "BanglaVoiceVideo\n\n"
                                 + "বাংলা ও English লেখা থেকে "
-                                + "ভয়েস তৈরি করার জন্য এই অ্যাপটি তৈরি করা হচ্ছে।\n\n"
+                                + "ভয়েস এবং ভবিষ্যতে ভিডিও তৈরি "
+                                + "করার জন্য এই অ্যাপটি তৈরি করা হচ্ছে।\n\n"
                                 + "দৃষ্টি প্রতিবন্ধী ব্যবহারকারীদের "
-                                + "জন্য TalkBack সহায়ক রাখার লক্ষ্য রয়েছে।",
+                                + "জন্য অ্যাপটিকে সহজ ও TalkBack "
+                                + "সহায়ক রাখার লক্ষ্য রয়েছে।\n\n"
+                                + "নাম: MD Raju Hossain\n"
+                                + "জেলা: রংপুর\n"
+                                + "WhatsApp: 01744614234\n\n"
+                                + "এই অ্যাপটি ধাপে ধাপে উন্নত করা হবে।",
                         "BanglaVoiceVideo\n\n"
                                 + "This app is being developed to "
-                                + "create voice from Bangla and English text.\n\n"
-                                + "The goal is to keep the app accessible "
-                                + "for visually impaired users, including TalkBack."
+                                + "create voice and, in the future, "
+                                + "videos from Bangla and English text.\n\n"
+                                + "The goal is to make the app simple "
+                                + "and accessible for visually impaired "
+                                + "users, including TalkBack support.\n\n"
+                                + "Name: MD Raju Hossain\n"
+                                + "District: Rangpur\n"
+                                + "WhatsApp: 01744614234\n\n"
+                                + "This app will be improved step by step."
                 );
 
         TextView aboutView =
@@ -2190,7 +2196,10 @@ public class MainActivity extends Activity {
                 this
         )
                 .setTitle(
-                        "About"
+                        getText(
+                                "About",
+                                "About"
+                        )
                 )
                 .setView(scroll)
                 .setPositiveButton(
@@ -2228,106 +2237,20 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void updateButtons() {
-
-        if (listenButton == null
-                || pauseButton == null) {
-
-            return;
-        }
-
-        listenButton.setText(
-                getText(
-                        "লেখা শুনুন",
-                        "Listen"
-                )
-        );
-
-        if (speaking) {
-
-            pauseButton.setText(
-                    getText(
-                            "ভয়েস বন্ধ করুন",
-                            "Pause Voice"
-                    )
-            );
-
-            pauseButton.setContentDescription(
-                    getText(
-                            "ভয়েস বন্ধ করুন",
-                            "Pause Voice"
-                    )
-            );
-
-        } else if (paused) {
-
-            pauseButton.setText(
-                    getText(
-                            "ভয়েস চালু করুন",
-                            "Resume Voice"
-                    )
-            );
-
-            pauseButton.setContentDescription(
-                    getText(
-                            "ভয়েস চালু করুন",
-                            "Resume Voice"
-                    )
-            );
-
-        } else {
-
-            pauseButton.setText(
-                    getText(
-                            "ভয়েস বন্ধ করুন",
-                            "Pause Voice"
-                    )
-            );
-
-            pauseButton.setContentDescription(
-                    getText(
-                            "ভয়েস বন্ধ করুন",
-                            "Pause Voice"
-                    )
-            );
-        }
-
-        if (exportButton != null) {
-
-            exportButton.setText(
-                    getText(
-                            "অডিও এক্সপোর্ট",
-                            "Export Audio"
-                    )
-            );
-
-            exportButton.setEnabled(
-                    ttsReady && !exporting
-            );
-        }
-    }
-
     @Override
     protected void onDestroy() {
 
-        exporting = false;
+        exportingAudio = false;
 
         cleanExportFiles();
 
         if (tts != null) {
 
-            try {
-                tts.stop();
-            } catch (Exception ignored) {
-            }
+            tts.stop();
 
-            try {
-                tts.shutdown();
-            } catch (Exception ignored) {
-            }
+            tts.shutdown();
         }
 
         super.onDestroy();
     }
 }
-``` [❶](code://python)
