@@ -17,12 +17,12 @@ import java.util.Locale;
 
 public class VoiceReadingService extends Service {
 
-    private TextToSpeech tts;
-
     private static final String CHANNEL_ID =
             "BanglaVoiceVideoVoiceChannel";
 
     private static final int NOTIFICATION_ID = 1001;
+
+    private TextToSpeech tts;
 
     @Override
     public void onCreate() {
@@ -46,10 +46,6 @@ public class VoiceReadingService extends Service {
 
                     if (status == TextToSpeech.SUCCESS) {
 
-                        tts.setLanguage(
-                                new Locale("bn", "BD")
-                        );
-
                         tts.setSpeechRate(0.95f);
                         tts.setPitch(1.0f);
 
@@ -64,22 +60,116 @@ public class VoiceReadingService extends Service {
         tts.setOnUtteranceProgressListener(
                 new UtteranceProgressListener() {
 
-            @Override
-            public void onStart(String utteranceId) {
-            }
+                    @Override
+                    public void onStart(String utteranceId) {
+                    }
 
-            @Override
-            public void onDone(String utteranceId) {
+                    @Override
+                    public void onDone(String utteranceId) {
 
+                        if ("background_reading".equals(
+                                utteranceId)) {
+
+                            stopSelf();
+                        }
+                    }
+
+                    @Override
+                    public void onError(String utteranceId) {
+                        stopSelf();
+                    }
+                }
+        );
+    }
+
+    @Override
+    public int onStartCommand(
+            Intent intent,
+            int flags,
+            int startId) {
+
+        if (intent == null || tts == null) {
+            return START_NOT_STICKY;
+        }
+
+        String action =
+                intent.getStringExtra("action");
+
+        if ("STOP".equals(action)) {
+
+            tts.stop();
+            stopSelf();
+
+            return START_NOT_STICKY;
+        }
+
+        String text =
+                intent.getStringExtra("text");
+
+        String language =
+                intent.getStringExtra("language");
+
+        if (text != null &&
+                !text.trim().isEmpty()) {
+
+            try {
+
+                if ("en".equals(language)) {
+
+                    tts.setLanguage(
+                            Locale.US
+                    );
+
+                } else {
+
+                    tts.setLanguage(
+                            new Locale("bn", "BD")
+                    );
+                }
+
+                tts.setSpeechRate(0.95f);
+                tts.setPitch(1.0f);
+
+                String cleanText =
+                        cleanTextForSpeech(text);
+
+                tts.speak(
+                        cleanText,
+                        TextToSpeech.QUEUE_FLUSH,
+                        null,
+                        "background_reading"
+                );
+
+            } catch (Exception e) {
                 stopSelf();
             }
+        }
 
-            @Override
-            public void onError(String utteranceId) {
+        return START_NOT_STICKY;
+    }
 
-                stopSelf();
-            }
-        });
+    private String cleanTextForSpeech(
+            String text) {
+
+        if (text == null) {
+            return "";
+        }
+
+        /*
+         * অপ্রয়োজনীয় বিশেষ চিহ্ন বাদ দেওয়া হচ্ছে।
+         * বাক্যের প্রয়োজনীয় বিরামচিহ্ন রাখা হচ্ছে,
+         * যাতে ভয়েস স্বাভাবিকভাবে বিরতি নিতে পারে।
+         */
+        return text
+                .replaceAll(
+                        "[*_#@|~^`]+",
+                        " "
+                )
+                .replaceAll(
+                        "\\s+",
+                        " "
+                )
+                .trim();
     }
 
     private Notification createNotification() {
@@ -98,6 +188,9 @@ public class VoiceReadingService extends Service {
                         android.R.drawable.ic_media_play
                 )
                 .setOngoing(true)
+                .setCategory(
+                        NotificationCompat.CATEGORY_SERVICE
+                )
                 .build();
     }
 
@@ -124,6 +217,7 @@ public class VoiceReadingService extends Service {
                     );
 
             if (manager != null) {
+
                 manager.createNotificationChannel(
                         channel
                 );
@@ -132,59 +226,10 @@ public class VoiceReadingService extends Service {
     }
 
     @Override
-    public int onStartCommand(
-            Intent intent,
-            int flags,
-            int startId) {
-
-        if (intent != null &&
-                intent.hasExtra("text")) {
-
-            String text =
-                    intent.getStringExtra("text");
-
-            if (text != null &&
-                    !text.trim().isEmpty() &&
-                    tts != null) {
-
-                tts.setSpeechRate(0.95f);
-                tts.setPitch(1.0f);
-
-                tts.speak(
-                        cleanTextForSpeech(text),
-                        TextToSpeech.QUEUE_FLUSH,
-                        null,
-                        "background_reading"
-                );
-            }
-        }
-
-        return START_NOT_STICKY;
-    }
-
-    private String cleanTextForSpeech(
-            String text) {
-
-        if (text == null) {
-            return "";
-        }
-
-        return text
-                .replaceAll(
-                        "[*_#@|~^`]+",
-                        " "
-                )
-                .replaceAll(
-                        "\\s+",
-                        " "
-                )
-                .trim();
-    }
-
-    @Override
     public void onDestroy() {
 
         if (tts != null) {
+
             tts.stop();
             tts.shutdown();
             tts = null;
