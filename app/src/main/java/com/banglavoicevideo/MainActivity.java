@@ -4,7 +4,6 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ContentValues;
-import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -13,6 +12,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.StatFs;
 import android.provider.MediaStore;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
@@ -23,6 +23,8 @@ import android.widget.*;
 
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
 
@@ -34,7 +36,7 @@ public class MainActivity extends Activity {
     private TextToSpeech tts;
     private EditText textInput;
     private TextView statusText;
-    private Button listenButton, pauseButton, stopButton, settingsButton, exportAudioButton;
+    private Button listenButton, pauseButton, settingsButton, exportAudioButton;
 
     private volatile boolean ttsReady = false;
     private volatile boolean speaking = false;
@@ -52,6 +54,7 @@ public class MainActivity extends Activity {
     private SharedPreferences preferences;
     private String appLanguage = "bn";
     private float speechRate = 0.95f;
+    private final ExecutorService threadExecutor = Executors.newSingleThreadExecutor();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -67,18 +70,20 @@ public class MainActivity extends Activity {
 
     private void initializeTTS() {
         tts = new TextToSpeech(this, result -> {
-            if (isFinishing() || isDestroyed()) return;
             if (result == TextToSpeech.SUCCESS) {
                 ttsReady = true;
                 tts.setSpeechRate(speechRate);
                 tts.setPitch(1.0f);
                 setupTTSListener();
 
-                setStatus(getText("প্রস্তুত", "Ready"));
+                setStatus(getText("প্রস্তুত (অফলাইন)", "Ready (Offline)"));
                 updateButtons();
             } else {
                 ttsReady = false;
-                setStatus(getText("ভয়েস সিস্টেম প্রস্তুত করা যায়নি", "TTS could not be initialized"));
+                setStatus(getText(
+                        "ভয়েস সিস্টেম প্রস্তুত করা যায়নি",
+                        "TTS could not be initialized"
+                ));
             }
         });
     }
@@ -89,26 +94,28 @@ public class MainActivity extends Activity {
             @Override
             public void onStart(String id) {
                 runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed()) return;
-                    speaking = true;
-                    paused = false;
-                    setStatus(getText("ভয়েস চলছে", "Voice is playing"));
-                    updateButtons();
+                    if (id != null && id.startsWith("part_")) {
+                        speaking = true;
+                        paused = false;
+                        setStatus(getText("ভয়েস চলছে...", "Voice playing..."));
+                        updateButtons();
+                    }
                 });
             }
 
             @Override
             public void onDone(String id) {
                 runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed()) return;
-
                     if (id != null && id.startsWith("export_")) {
                         if (exportingAudio) {
                             exportIndex++;
+                            int percent = (int) (((float) exportIndex / exportParts.size()) * 100);
+                            setStatus(getText("অডিও তৈরি হচ্ছে: " + percent + "%", "Creating audio: " + percent + "%"));
+
                             if (exportIndex < exportParts.size()) {
                                 synthesizeNextExportPart();
                             } else {
-                                processAudioMergeAsync();
+                                mergeAndSaveExportedAudio();
                             }
                         }
                         return;
@@ -116,14 +123,15 @@ public class MainActivity extends Activity {
 
                     if (paused) return;
 
-                    if (id != null && id.startsWith("part_")) {
-                        currentPart++;
-                        if (currentPart < speechParts.size()) {
-                            speakCurrentPart();
-                        } else {
-                            stopReading();
-                            setStatus(getText("পড়া শেষ হয়েছে", "Reading finished"));
-                        }
+                    currentPart++;
+                    if (currentPart < speechParts.size()) {
+                        speakCurrentPart();
+                    } else {
+                        speaking = false;
+                        paused = false;
+                        currentPart = 0;
+                        setStatus(getText("পড়া শেষ হয়েছে", "Reading finished"));
+                        updateButtons();
                     }
                 });
             }
@@ -131,14 +139,21 @@ public class MainActivity extends Activity {
             @Override
             public void onError(String id) {
                 runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed()) return;
                     if (id != null && id.startsWith("export_")) {
-                        failAudioExport(getText("অডিও তৈরি করতে সমস্যা হয়েছে", "Audio export failed"));
+                        failAudioExport(getText(
+                                "অডিও তৈরি করতে সমস্যা হয়েছে",
+                                "Audio export failed"
+                        ));
                         return;
                     }
 
-                    stopReading();
-                    setStatus(getText("ভয়েস পড়তে সমস্যা হয়েছে", "Voice playback error"));
+                    speaking = false;
+                    paused = false;
+                    setStatus(getText(
+                            "ভয়েস পড়তে সমস্যা হয়েছে",
+                            "Voice playback error"
+                    ));
+                    updateButtons();
                 });
             }
         });
@@ -157,6 +172,7 @@ public class MainActivity extends Activity {
         title.setTextColor(Color.BLACK);
         title.setGravity(Gravity.CENTER);
         title.setPadding(0, 0, 0, 20);
+
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         ScrollView scroll = new ScrollView(this);
@@ -172,6 +188,7 @@ public class MainActivity extends Activity {
         textInput.setSingleLine(false);
         textInput.setMaxLines(Integer.MAX_VALUE);
         textInput.setVerticalScrollBarEnabled(true);
+        textInput.setContentDescription(getText("বাংলা অথবা English লেখা লেখার ঘর", "Text input box for Bangla or English"));
 
         scroll.addView(textInput, new ScrollView.LayoutParams(-1, 500));
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -183,11 +200,6 @@ public class MainActivity extends Activity {
         pauseButton = new Button(this);
         pauseButton.setOnClickListener(v -> pauseOrResume());
         root.addView(pauseButton);
-
-        stopButton = new Button(this);
-        stopButton.setText(getText("থামান", "Stop"));
-        stopButton.setOnClickListener(v -> stopReading());
-        root.addView(stopButton);
 
         exportAudioButton = new Button(this);
         exportAudioButton.setOnClickListener(v -> checkPermissionAndExportAudio());
@@ -209,12 +221,6 @@ public class MainActivity extends Activity {
         updateButtons();
     }
 
-    private String cleanTextForSpeech(String text) {
-        if (text == null) return "";
-        // শুধুমাত্র বর্ণ (বাংলা/ইংরেজি) ও সংখ্যা রেখে সব চিহ্ন স্পেস দিয়ে প্রতিস্থাপন করবে
-        return text.replaceAll("[^\\p{L}\\p{N}\\s]", " ");
-    }
-
     private void startReading() {
         if (!ttsReady) {
             setStatus(getText("ভয়েস সিস্টেম প্রস্তুত নয়", "TTS is not ready"));
@@ -229,7 +235,7 @@ public class MainActivity extends Activity {
 
         tts.stop();
         speechParts.clear();
-        speechParts.addAll(splitTextSafe(text, 500));
+        speechParts.addAll(splitForNaturalReading(text));
 
         currentPart = 0;
         paused = false;
@@ -238,37 +244,27 @@ public class MainActivity extends Activity {
         speakCurrentPart();
     }
 
-    private void stopReading() {
-        if (tts != null) {
-            tts.stop();
-        }
-        speaking = false;
-        paused = false;
-        currentPart = 0;
-        setStatus(getText("পড়া বন্ধ করা হয়েছে", "Reading stopped"));
-        updateButtons();
-    }
-
-    private List<String> splitTextSafe(String text, int maxLength) {
+    private List<String> splitForNaturalReading(String text) {
         List<String> result = new ArrayList<>();
-        
-        // প্রথমে টেক্সট থেকে অপ্রয়োজনীয় সব চিহ্ন পরিষ্কার করে নেওয়া হচ্ছে
-        String cleanedText = cleanTextForSpeech(text);
-        String clean = cleanedText.replaceAll("\\s+", " ").trim();
+        String clean = text.replace("\r", " ").replace("\n", " ").replaceAll("\\s+", " ").trim();
 
         if (clean.isEmpty()) return result;
 
+        String[] sentences = clean.split("(?<=[।!?])\\s+");
         StringBuilder current = new StringBuilder();
-        String[] words = clean.split(" ");
 
-        for (String word : words) {
-            if (current.length() + word.length() + 1 <= maxLength) {
-                if (current.length() > 0) current.append(" ");
-                current.append(word);
+        for (String sentence : sentences) {
+            sentence = sentence.trim();
+            if (sentence.isEmpty()) continue;
+
+            if (current.length() == 0) {
+                current.append(sentence);
+            } else if (current.length() + sentence.length() + 1 <= 1500) {
+                current.append(" ").append(sentence);
             } else {
                 result.add(current.toString().trim());
                 current.setLength(0);
-                current.append(word);
+                current.append(sentence);
             }
         }
 
@@ -280,7 +276,9 @@ public class MainActivity extends Activity {
     }
 
     private void speakCurrentPart() {
-        if (!ttsReady || currentPart < 0 || currentPart >= speechParts.size()) return;
+        if (!ttsReady || currentPart < 0 || currentPart >= speechParts.size()) {
+            return;
+        }
 
         String part = speechParts.get(currentPart).trim();
         if (part.isEmpty()) {
@@ -289,7 +287,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        applyOfflineVoiceByLanguage(part);
+        chooseOfflineLanguage(part);
         tts.setSpeechRate(speechRate);
         tts.setPitch(1.0f);
 
@@ -306,69 +304,39 @@ public class MainActivity extends Activity {
             tts.stop();
             speaking = false;
             paused = true;
-            setStatus(getText("ভয়েস পজ করা হয়েছে", "Voice is paused"));
+            setStatus(getText("ভয়েস বন্ধ আছে (Pause)", "Voice paused"));
             updateButtons();
-        } else if (paused) {
-            if (currentPart < speechParts.size()) {
-                setStatus(getText("ভয়েস পুনরায় চলছে", "Resuming voice"));
-                speakCurrentPart();
-            } else {
-                stopReading();
-            }
+        } else if (paused && currentPart < speechParts.size()) {
+            speakCurrentPart();
         }
     }
 
-    private void applyOfflineVoiceByLanguage(String text) {
+    private void chooseOfflineLanguage(String text) {
         try {
             if (containsBangla(text)) {
-                // বাংলা লেখার জন্য ইন্ডিয়া/বাংলা অফলাইন লোকাল এবং ফিমেল ফিল্টার
-                setOfflineGenderVoice(new Locale("bn", "IN"), true);
+                setOfflineVoice(new Locale("bn", "BD"));
             } else {
-                // ইংরেজি লেখার জন্য অফলাইন লোকাল এবং মেল ফিল্টার
-                setOfflineGenderVoice(Locale.US, false);
+                setOfflineVoice(Locale.US);
             }
-        } catch (Exception e) {
-            try {
-                tts.setLanguage(Locale.getDefault());
-            } catch (Exception ignored) {}
-        }
+        } catch (Exception ignored) {}
     }
 
-    private void setOfflineGenderVoice(Locale locale, boolean wantFemale) {
+    private void setOfflineVoice(Locale locale) {
         if (tts == null) return;
-        Voice fallback = null;
-
         try {
             Set<Voice> voices = tts.getVoices();
             if (voices != null && !voices.isEmpty()) {
                 for (Voice voice : voices) {
-                    Locale vl = voice.getLocale();
-                    if (vl == null) continue;
-
-                    // অফলাইনে উপলব্ধ ভয়েস ফিল্টার করা হচ্ছে
-                    if (vl.getLanguage().equalsIgnoreCase(locale.getLanguage())) {
-                        String voiceName = voice.getName().toLowerCase();
-                        boolean isFemaleVoice = voiceName.contains("female") || voiceName.contains("f00");
-                        boolean isMaleVoice = voiceName.contains("male") || voiceName.contains("m00");
-
-                        if (wantFemale && isFemaleVoice) {
-                            tts.setVoice(voice);
-                            return;
-                        } else if (!wantFemale && isMaleVoice) {
+                    if (voice.getLocale() != null &&
+                            voice.getLocale().getLanguage().equalsIgnoreCase(locale.getLanguage())) {
+                        if (!voice.isNetworkConnectionRequired()) {
                             tts.setVoice(voice);
                             return;
                         }
-
-                        if (fallback == null) fallback = voice;
                     }
                 }
             }
-
-            if (fallback != null) {
-                tts.setVoice(fallback);
-            } else {
-                tts.setLanguage(locale);
-            }
+            tts.setLanguage(locale);
         } catch (Exception e) {
             try {
                 tts.setLanguage(locale);
@@ -379,7 +347,9 @@ public class MainActivity extends Activity {
     private boolean containsBangla(String text) {
         for (int i = 0; i < text.length(); i++) {
             char c = text.charAt(i);
-            if (c >= '\u0980' && c <= '\u09FF') return true;
+            if (c >= '\u0980' && c <= '\u09FF') {
+                return true;
+            }
         }
         return false;
     }
@@ -388,15 +358,16 @@ public class MainActivity extends Activity {
         if (listenButton == null) return;
 
         listenButton.setText(getText("লেখা শুনুন", "Listen"));
-        pauseButton.setEnabled(speaking || paused);
-        stopButton.setEnabled(speaking || paused);
 
         if (speaking) {
-            pauseButton.setText(getText("ভয়েস পজ করুন", "Pause Voice"));
+            pauseButton.setText(getText("ভয়েস থামান (Pause)", "Pause Voice"));
+            pauseButton.setEnabled(true);
         } else if (paused) {
-            pauseButton.setText(getText("পুনরায় চালান", "Resume Voice"));
+            pauseButton.setText(getText("পুনরায় চালু করুন (Resume)", "Resume Voice"));
+            pauseButton.setEnabled(true);
         } else {
-            pauseButton.setText(getText("ভয়েস পজ করুন", "Pause Voice"));
+            pauseButton.setText(getText("ভয়েস থামান", "Pause Voice"));
+            pauseButton.setEnabled(false);
         }
 
         exportAudioButton.setText(exportingAudio ? getText("অডিও তৈরি হচ্ছে...", "Creating audio...") : getText("অডিও এক্সপোর্ট", "Export Audio"));
@@ -404,6 +375,11 @@ public class MainActivity extends Activity {
     }
 
     private void checkPermissionAndExportAudio() {
+        if (!hasEnoughStorage()) {
+            setStatus(getText("ডিভাইসে পর্যাপ্ত মেমোরি খালি নেই", "Not enough storage space available"));
+            return;
+        }
+
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, PERMISSION_REQUEST_CODE);
@@ -411,6 +387,13 @@ public class MainActivity extends Activity {
             }
         }
         exportAudio();
+    }
+
+    private boolean hasEnoughStorage() {
+        File statFile = getCacheDir();
+        StatFs stat = new StatFs(statFile.getPath());
+        long bytesAvailable = stat.getAvailableBlocksLong() * stat.getBlockSizeLong();
+        return bytesAvailable > (20 * 1024 * 1024);
     }
 
     @Override
@@ -435,7 +418,7 @@ public class MainActivity extends Activity {
         }
 
         exportParts.clear();
-        exportParts.addAll(splitTextSafe(text, 2000));
+        exportParts.addAll(splitForNaturalReading(text));
         if (exportParts.isEmpty()) return;
 
         exportFiles.clear();
@@ -450,60 +433,69 @@ public class MainActivity extends Activity {
             return;
         }
 
-        setStatus(getText("অডিও তৈরি হচ্ছে...", "Creating audio..."));
+        setStatus(getText("অডিও তৈরি হচ্ছে: 0%", "Creating audio: 0%"));
         updateButtons();
         synthesizeNextExportPart();
     }
 
     private void synthesizeNextExportPart() {
-        if (!exportingAudio || exportIndex >= exportParts.size()) return;
+        if (!exportingAudio || exportIndex >= exportParts.size()) {
+            return;
+        }
 
         String part = exportParts.get(exportIndex).trim();
         File file = new File(exportDir, "part_" + exportIndex + ".wav");
 
         try {
-            applyOfflineVoiceByLanguage(part);
+            chooseOfflineLanguage(part);
             tts.setSpeechRate(speechRate);
             tts.setPitch(1.0f);
 
             int result = tts.synthesizeToFile(part, new Bundle(), file, "export_" + exportIndex);
+
             if (result != TextToSpeech.SUCCESS) {
                 failAudioExport(getText("অডিও তৈরি করা যায়নি", "Could not create audio"));
                 return;
             }
+
             exportFiles.add(file);
         } catch (Exception e) {
             failAudioExport(getText("অডিও তৈরির সময় সমস্যা হয়েছে", "Audio creation failed"));
         }
     }
 
-    private void processAudioMergeAsync() {
-        new Thread(() -> {
-            if (!exportingAudio || exportFiles.isEmpty()) {
-                runOnUiThread(() -> failAudioExport(getText("কোনো অডিও অংশ তৈরি হয়নি", "No audio parts were created")));
-                return;
-            }
+    private void mergeAndSaveExportedAudio() {
+        if (!exportingAudio || exportFiles.isEmpty()) {
+            failAudioExport(getText("কোনো অডিও অংশ তৈরি হয়নি", "No audio parts were created"));
+            return;
+        }
 
-            File merged = new File(exportDir, "complete.wav");
+        File merged = new File(exportDir, "complete.wav");
+
+        threadExecutor.execute(() -> {
             try {
                 mergeWavFiles(exportFiles, merged);
                 saveExportedAudio(merged, createAudioFileName(textInput.getText().toString()));
             } catch (Exception e) {
-                runOnUiThread(() -> failAudioExport(getText("অডিও ফাইল তৈরি করা যায়নি", "Could not create audio file")));
+                runOnUiThread(() -> failAudioExport(getText("অডিও ফাইল একত্রিত করতে সমস্যা হয়েছে", "Could not merge audio files")));
             }
-        }).start();
+        });
     }
 
     private void mergeWavFiles(List<File> files, File output) throws IOException {
         byte[] header = new byte[44];
         try (FileInputStream first = new FileInputStream(files.get(0))) {
-            if (first.read(header) < 44) throw new IOException("Invalid WAV header");
+            if (first.read(header) < 44) {
+                throw new IOException("Invalid WAV header");
+            }
         }
 
         long dataLength = 0;
         for (File f : files) {
-            if (f.length() < 44) throw new IOException("WAV part file too small");
-            dataLength += f.length() - 44;
+            if (f.length() < 44) {
+                throw new IOException("WAV part file too small");
+            }
+            dataLength += (f.length() - 44);
         }
 
         int channels = readShortLE(header, 22);
@@ -588,12 +580,11 @@ public class MainActivity extends Activity {
             if (name.length() >= 30) break;
         }
 
-        return name.length() == 0 ? "BanglaVoiceVideo_Audio" : (name.length() > 30 ? name.substring(0, 30) : name.toString());
+        return name.length() == 0 ? "BanglaVoiceVideo_Audio" : name.toString();
     }
 
     private void saveExportedAudio(File file, String name) {
         try {
-            Uri savedUri = null;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 ContentValues values = new ContentValues();
                 values.put(MediaStore.Audio.Media.DISPLAY_NAME, name + ".wav");
@@ -617,7 +608,6 @@ public class MainActivity extends Activity {
                 ContentValues ready = new ContentValues();
                 ready.put(MediaStore.Audio.Media.IS_PENDING, 0);
                 getContentResolver().update(uri, ready, null, null);
-                savedUri = uri;
 
             } else {
                 File musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC);
@@ -634,37 +624,18 @@ public class MainActivity extends Activity {
                         out.write(buffer, 0, n);
                     }
                 }
-                savedUri = Uri.fromFile(destFile);
             }
 
-            final Uri finalUri = savedUri;
             runOnUiThread(() -> {
                 exportingAudio = false;
-                setStatus(getText("অডিও সংরক্ষণ হয়েছে: Music ফোল্ডারে", "Audio saved: Music folder"));
+                setStatus(getText("অডিও সফলভাবে সেভ হয়েছে: Music ফোল্ডারে", "Audio saved: Music folder"));
                 updateButtons();
                 cleanExportFiles();
-                offerFileAction(finalUri);
             });
 
         } catch (Exception e) {
             runOnUiThread(() -> failAudioExport(getText("অডিও সংরক্ষণ করা যায়নি", "Could not save audio")));
         }
-    }
-
-    private void offerFileAction(Uri fileUri) {
-        if (fileUri == null) return;
-        new AlertDialog.Builder(this)
-                .setTitle(getText("অডিও তৈরি সম্পন্ন", "Audio Export Done"))
-                .setMessage(getText("আপনি কি ফাইলটি শেয়ার করতে চান?", "Would you like to share the file?"))
-                .setPositiveButton(getText("শেয়ার", "Share"), (d, w) -> {
-                    Intent shareIntent = new Intent(Intent.ACTION_SEND);
-                    shareIntent.setType("audio/*");
-                    shareIntent.putExtra(Intent.EXTRA_STREAM, fileUri);
-                    shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                    startActivity(Intent.createChooser(shareIntent, getText("শেয়ার করুন", "Share Audio")));
-                })
-                .setNegativeButton(getText("বন্ধ করুন", "Close"), null)
-                .show();
     }
 
     private void failAudioExport(String message) {
@@ -712,7 +683,7 @@ public class MainActivity extends Activity {
         speedLabel.setText(getText("ভয়েসের গতি", "Voice Speed"));
         speedLabel.setTextSize(18);
         speedLabel.setTextColor(Color.BLACK);
-        speedLabel.setPadding(0, 25, 0, 10);
+        speedLabel.setPadding(0, 15, 0, 5);
         layout.addView(speedLabel);
 
         Spinner speedSpinner = new Spinner(this);
@@ -733,7 +704,6 @@ public class MainActivity extends Activity {
         else if (speechRate >= 1.10f) selected = 2;
 
         speedSpinner.setSelection(selected);
-
         speedSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
@@ -743,17 +713,11 @@ public class MainActivity extends Activity {
                 else speechRate = 1.25f;
 
                 preferences.edit().putFloat(PREF_SPEED, speechRate).apply();
-
-                if (tts != null && ttsReady) {
-                    tts.setSpeechRate(speechRate);
-                    tts.setPitch(1.0f);
-                }
             }
 
             @Override
             public void onNothingSelected(AdapterView<?> parent) {}
         });
-
         layout.addView(speedSpinner);
 
         Button aboutButton = new Button(this);
@@ -786,26 +750,28 @@ public class MainActivity extends Activity {
     private void refreshInterfaceLanguage() {
         if (textInput != null) {
             textInput.setHint(getText("এখানে বাংলা বা English লেখা লিখুন", "Write Bangla or English text here"));
+            textInput.setContentDescription(getText("বাংলা অথবা English লেখা লেখার ঘর", "Text input box for Bangla or English"));
         }
+
         if (listenButton != null) {
             listenButton.setText(getText("লেখা শুনুন", "Listen"));
         }
-        if (stopButton != null) {
-            stopButton.setText(getText("থামান", "Stop"));
-        }
+
         if (settingsButton != null) {
             settingsButton.setText(getText("⚙ সেটিংস", "⚙ Settings"));
         }
+
         if (exportAudioButton != null) {
             exportAudioButton.setText(exportingAudio ? getText("অডিও তৈরি হচ্ছে...", "Creating audio...") : getText("অডিও এক্সপোর্ট", "Export Audio"));
         }
+
         updateButtons();
     }
 
     private void showAbout() {
         String about = getText(
-                "BanglaVoiceVideo\n\nবাংলা ও English লেখা থেকে ভয়েস তৈরির জন্য এই অ্যাপটি তৈরি করা হচ্ছে।",
-                "BanglaVoiceVideo\n\nThis app is developed to create voice from Bangla and English text."
+                "BanglaVoiceVideo\n\nবাংলা ও English লেখা থেকে সম্পূর্ণ অফলাইনে ভয়েস তৈরি করা যায়। পরবর্তী ধাপে ভিডিও ফিচার যুক্ত হবে।",
+                "BanglaVoiceVideo\n\nCreates voice offline from Bangla and English text. Video generation features will be added next."
         );
 
         TextView view = new TextView(this);
@@ -832,12 +798,26 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onPause() {
+        super.onPause();
+        if (tts != null && speaking) {
+            tts.stop();
+            speaking = false;
+            paused = true;
+            updateButtons();
+        }
+    }
+
+    @Override
     protected void onDestroy() {
         exportingAudio = false;
         cleanExportFiles();
 
+        if (threadExecutor != null && !threadExecutor.isShutdown()) {
+            threadExecutor.shutdownNow();
+        }
+
         if (tts != null) {
-            tts.setOnUtteranceProgressListener(null);
             tts.stop();
             tts.shutdown();
         }
