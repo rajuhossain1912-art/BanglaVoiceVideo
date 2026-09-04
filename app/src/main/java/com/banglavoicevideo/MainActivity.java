@@ -1,17 +1,18 @@
-
 package com.banglavoicevideo;
 
 import android.content.Intent;
-import android.os.Build;
 import android.os.Bundle;
 import android.widget.Button;
 import android.widget.EditText;
+
 import androidx.appcompat.app.AppCompatActivity;
 
 public class MainActivity extends AppCompatActivity {
 
     private EditText inputText;
-    private Button btnSpeakBangla, btnSpeakEnglish, btnStop;
+    private Button btnSpeakBangla;
+    private Button btnSpeakEnglish;
+    private Button btnStop;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -24,34 +25,34 @@ public class MainActivity extends AppCompatActivity {
         btnStop = findViewById(R.id.btnStop);
 
         btnSpeakBangla.setOnClickListener(v -> {
-            String text = inputText.getText().toString();
-            startVoiceService(text, "bn");
+            String text = inputText.getText().toString().trim();
+
+            if (!text.isEmpty()) {
+                startVoiceService(text, "bn");
+            }
         });
 
         btnSpeakEnglish.setOnClickListener(v -> {
-            String text = inputText.getText().toString();
-            startVoiceService(text, "en");
+            String text = inputText.getText().toString().trim();
+
+            if (!text.isEmpty()) {
+                startVoiceService(text, "en");
+            }
         });
 
         btnStop.setOnClickListener(v -> {
             Intent intent = new Intent(this, VoiceReadingService.class);
-            intent.putExtra("action", "STOP");
+            intent.setAction("STOP");
             startService(intent);
         });
     }
 
     private void startVoiceService(String text, String language) {
-        if (text.isEmpty()) return;
-
         Intent intent = new Intent(this, VoiceReadingService.class);
+        intent.setAction("SPEAK");
         intent.putExtra("text", text);
         intent.putExtra("language", language);
 
-        // Android 8.0+ (API 26+) এর জন্য startForegroundService নিশ্চিত করা
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent);
-        } else {
-            startService(intent);
-        }
+        startForegroundService(intent);
     }
 }
