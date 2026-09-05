@@ -1,58 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
+<resources>
 
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:fillViewport="true">
+    <style name="Theme.BanglaVoiceVideo"
+        parent="android:style/Theme.Material.Light.NoActionBar">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">#FFFFFF</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
 
-        <TextView
-            android:id="@+id/titleText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:paddingBottom="16dp"
-            android:text="BanglaVoiceVideo"
-            android:textSize="24sp"
-            android:textStyle="bold" />
+    </style>
 
-        <EditText
-            android:id="@+id/inputText"
-            android:layout_width="match_parent"
-            android:layout_height="220dp"
-            android:gravity="top|start"
-            android:hint="এখানে সম্পূর্ণ লেখা লিখুন বা পেস্ট করুন"
-            android:importantForAccessibility="yes"
-            android:inputType="textMultiLine"
-            android:padding="12dp"
-            android:scrollbars="vertical" />
-
-        <Button
-            android:id="@+id/btnSpeakBangla"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="বাংলায় পড়ুন" />
-
-        <Button
-            android:id="@+id/btnSpeakEnglish"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="ইংরেজিতে পড়ুন" />
-
-        <Button
-            android:id="@+id/btnStop"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="পড়া বন্ধ করুন" />
-
-    </LinearLayout>
-
-</ScrollView>
+</resources>
